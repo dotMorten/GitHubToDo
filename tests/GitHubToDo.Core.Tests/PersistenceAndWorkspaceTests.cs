@@ -124,6 +124,7 @@ public sealed class PersistenceAndWorkspaceTests
         await workspace.OpenAsync(client.User);
         await workspace.RefreshAsync();
         var snapshot = workspace.Account!.Items["item"].Activities.Select(activity => activity.Id).ToArray();
+        client.Metadata = item => new(item.UpdatedAt, 2, 0, 2);
         client.Activity = (_, _) => Task.FromResult<IReadOnlyList<Activity>>(
         [
             new("comment:1", ActivityKind.Comment, "other", "other", DateTimeOffset.UtcNow.AddHours(-1), "old", ""),
@@ -256,6 +257,7 @@ public sealed class PersistenceAndWorkspaceTests
         await workspace.OpenAsync(client.User);
         await workspace.RefreshAsync();
         await workspace.MarkReadAsync("item", ["comment:1"]);
+        client.Metadata = item => new(item.UpdatedAt, 0, 1, 1);
         client.Activity = (_, _) => Task.FromResult<IReadOnlyList<Activity>>(
             [new("review:2", ActivityKind.Review, "other", "other", DateTimeOffset.UtcNow, "APPROVED", "")]);
         await workspace.RefreshAsync();
@@ -361,8 +363,10 @@ public sealed class PersistenceAndWorkspaceTests
         foreach (var id in workspace.Account.Queries.Select(query => query.Id).ToArray())
             await workspace.DeleteQueryAsync(id);
         var before = client.ActivityCalls;
+        var metadataBefore = client.MetadataCalls;
         await workspace.RefreshAsync();
-        Assert.AreEqual(before + 1, client.ActivityCalls);
+        Assert.AreEqual(before, client.ActivityCalls);
+        Assert.AreEqual(metadataBefore + 1, client.MetadataCalls);
         var reopened = new WorkspaceService(database.Store, client);
         await reopened.OpenAsync(client.User);
         Assert.IsTrue(reopened.Account!.Items["item"].HasFollowUps);

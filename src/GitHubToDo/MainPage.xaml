@@ -182,10 +182,6 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <ProgressBar Grid.RowSpan="2" VerticalAlignment="Top" IsIndeterminate="True" Margin="8,0"
-                                 AutomationProperties.AutomationId="RefreshProgress" AutomationProperties.Name="Refreshing"
-                                 Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsBusy), Mode=OneWay}" />
-
                     <Grid Padding="28,20,16,10" ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -198,6 +194,7 @@
                                 <Border Style="{StaticResource AccentChipStyle}"
                                         Visibility="{x:Bind local:MainPage.Visible(ViewModel.SelectedQuery.IsUnread), Mode=OneWay, FallbackValue=Collapsed}">
                                     <TextBlock Text="{x:Bind local:MainPage.CountLabel(ViewModel.SelectedQuery.UnreadCount, 'unread'), Mode=OneWay, FallbackValue=''}"
+                                               AutomationProperties.AutomationId="QueryUnreadCount"
                                                Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" FontWeight="SemiBold" FontSize="12" />
                                 </Border>
                                 <Border Style="{StaticResource ChipStyle}">
@@ -205,14 +202,16 @@
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
                                 </Border>
                             </StackPanel>
-                            <TextBlock Text="{x:Bind ViewModel.QueryStatus, Mode=OneWay}" Style="{ThemeResource CaptionTextBlockStyle}"
+                            <TextBlock Text="{x:Bind ViewModel.SelectedQuery.Query.Expression, Mode=OneWay, FallbackValue=''}" Style="{ThemeResource CaptionTextBlockStyle}"
+                                       Visibility="{x:Bind local:MainPage.TextVisible(ViewModel.SelectedQuery.Query.Expression), Mode=OneWay, FallbackValue=Collapsed}"
+                                       ToolTipService.ToolTip="{x:Bind ViewModel.SelectedQuery.Query.Expression, Mode=OneWay, FallbackValue=''}"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" MaxLines="3"
-                                       AutomationProperties.AutomationId="QueryCoverageStatus" />
+                                       AutomationProperties.AutomationId="QuerySearchExpression" />
                         </StackPanel>
                         <CommandBar Grid.Column="1" DefaultLabelPosition="Right" OverflowButtonVisibility="Visible" VerticalAlignment="Center"
                                     Background="Transparent" AutomationProperties.AutomationId="QueryActions">
                             <AppBarButton Label="Refresh" Icon="Refresh" Command="{x:Bind ViewModel.RefreshCommand}"
-                                          ToolTipService.ToolTip="Check for recently updated items (F5)"
+                                          ToolTipService.ToolTip="Refresh the active view (F5)"
                                           AutomationProperties.AutomationId="Refresh">
                                 <AppBarButton.KeyboardAccelerators><KeyboardAccelerator Key="F5" /></AppBarButton.KeyboardAccelerators>
                             </AppBarButton>
@@ -415,13 +414,15 @@
                                     <CommandBar DefaultLabelPosition="Right" HorizontalAlignment="Left" OverflowButtonVisibility="Visible"
                                                 Background="Transparent" AutomationProperties.AutomationId="DetailsActions">
                                         <AppBarButton Label="Mark read" Command="{x:Bind ViewModel.MarkPreviewReadCommand}"
+                                                      Visibility="{x:Bind local:MainPage.Visible(ViewModel.SelectedItem.CanMarkRead), Mode=OneWay, FallbackValue=Collapsed}"
                                                       ToolTipService.ToolTip="Mark this item read. To act on every selected row, right-click the table or press Ctrl+Q."
-                                                      AutomationProperties.AutomationId="MarkRead">
-                                            <AppBarButton.Icon><FontIcon Glyph="&#xE8C3;" /></AppBarButton.Icon>
+                                                      AutomationProperties.AutomationId="MarkRead" AutomationProperties.Name="Mark previewed item read">
+                                            <AppBarButton.Icon><SymbolIcon Symbol="Read" /></AppBarButton.Icon>
                                         </AppBarButton>
                                         <AppBarButton Label="Mark unread" Command="{x:Bind ViewModel.MarkPreviewUnreadCommand}"
+                                                      Visibility="{x:Bind local:MainPage.Visible(ViewModel.SelectedItem.CanMarkUnread), Mode=OneWay, FallbackValue=Collapsed}"
                                                       ToolTipService.ToolTip="Mark this item unread. To act on every selected row, right-click the table or press Ctrl+U."
-                                                      AutomationProperties.AutomationId="MarkUnread">
+                                                      AutomationProperties.AutomationId="MarkUnread" AutomationProperties.Name="Mark previewed item unread">
                                             <AppBarButton.Icon><FontIcon Glyph="&#xE715;" /></AppBarButton.Icon>
                                         </AppBarButton>
                                         <AppBarButton Label="{x:Bind ViewModel.SelectedItem.ItemFlagLabel, Mode=OneWay, FallbackValue='Flag item'}"
@@ -430,15 +431,18 @@
                                             <AppBarButton.Icon><FontIcon Glyph="&#xE7C1;" /></AppBarButton.Icon>
                                         </AppBarButton>
                                         <AppBarSeparator />
+                                        <AppBarButton Label="Summarize unread" Command="{x:Bind ViewModel.SummarizeUnreadCommand}"
+                                                      ToolTipService.ToolTip="{x:Bind ViewModel.LocalAiDescription, Mode=OneWay}"
+                                                      AutomationProperties.HelpText="{x:Bind ViewModel.LocalAiDescription, Mode=OneWay}"
+                                                      AutomationProperties.AutomationId="SummarizeUnread" AutomationProperties.Name="Summarize unread comments in the previewed discussion">
+                                            <AppBarButton.Icon><PathIcon x:Name="SummarizeUnreadIcon" /></AppBarButton.Icon>
+                                        </AppBarButton>
                                         <AppBarButton Label="Summarize" Command="{x:Bind ViewModel.SummarizeCommand}"
                                                       ToolTipService.ToolTip="{x:Bind ViewModel.LocalAiDescription, Mode=OneWay}"
                                                       AutomationProperties.HelpText="{x:Bind ViewModel.LocalAiDescription, Mode=OneWay}"
-                                                      AutomationProperties.AutomationId="Summarize">
+                                                      AutomationProperties.AutomationId="Summarize" AutomationProperties.Name="Summarize the entire previewed discussion">
                                             <AppBarButton.Icon><PathIcon x:Name="SummarizeIcon" /></AppBarButton.Icon>
                                         </AppBarButton>
-                                        <AppBarButton Label="Cancel summary" Icon="Cancel" Command="{x:Bind ViewModel.CancelSummaryCommand}"
-                                                      Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsSummarizing), Mode=OneWay}"
-                                                      AutomationProperties.AutomationId="CancelSummary" />
                                         <AppBarButton Label="Open in GitHub" Command="{x:Bind ViewModel.OpenBrowserCommand}"
                                                       ToolTipService.ToolTip="Open in GitHub (Ctrl+O)" AutomationProperties.AutomationId="OpenInGitHub">
                                             <AppBarButton.Icon><FontIcon Glyph="&#xE8A7;" /></AppBarButton.Icon>
@@ -452,7 +456,55 @@
                                     </CommandBar>
                                 </Border>
 
-                                <ListView x:Name="DetailsScroll" Grid.Row="1" SelectionMode="None" IsItemClickEnabled="False"
+                                <Grid x:Name="SummaryLayout" Grid.Row="1" SizeChanged="SummaryLayout_SizeChanged">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                        <Border x:Name="SummaryPaneBorder" Grid.Column="1" Width="360" Canvas.ZIndex="1"
+                                                BorderThickness="1,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                                Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"
+                                                Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsSummaryOpen), Mode=OneWay}"
+                                                KeyDown="SummaryPane_KeyDown">
+                                            <Grid Padding="16" RowSpacing="12">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="*" />
+                                                </Grid.RowDefinitions>
+                                                <Grid ColumnSpacing="8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <PathIcon x:Name="SummaryHeaderIcon" Foreground="{x:Bind local:MainPage.SummaryAccentBrush(ViewModel.SummaryFailed), Mode=OneWay}" VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="1" Text="{x:Bind local:MainPage.SummaryTitle(ViewModel.SummaryFailed, ViewModel.SummaryHeading), Mode=OneWay}"
+                                                               Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" TextWrapping="Wrap"
+                                                               AutomationProperties.AutomationId="SummaryTitle" />
+                                                    <Button x:Name="CloseSummaryButton" Grid.Column="2" Command="{x:Bind ViewModel.CloseSummaryCommand}"
+                                                            Style="{StaticResource SubtleIconButtonStyle}" ToolTipService.ToolTip="Close summary and cancel generation"
+                                                            AutomationProperties.AutomationId="CloseSummary" AutomationProperties.Name="Close summary and cancel generation">
+                                                        <FontIcon Glyph="&#xE8BB;" FontSize="12" />
+                                                    </Button>
+                                                </Grid>
+                                                <ProgressBar Grid.Row="1" IsIndeterminate="True" Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsSummarizing), Mode=OneWay}"
+                                                             AutomationProperties.Name="Generating summary" />
+                                                <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled"
+                                                              AutomationProperties.AutomationId="SummaryPane" AutomationProperties.Name="Local AI summary">
+                                                    <StackPanel Spacing="12">
+                                                        <TextBlock Text="{x:Bind ViewModel.SummaryStatus, Mode=OneWay}" TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}"
+                                                                   Visibility="{x:Bind local:MainPage.TextVisible(ViewModel.SummaryStatus), Mode=OneWay}"
+                                                                   Foreground="{x:Bind local:MainPage.SummaryStatusBrush(ViewModel.SummaryFailed), Mode=OneWay}"
+                                                                   AutomationProperties.AutomationId="SummaryStatus" AutomationProperties.LiveSetting="Polite" />
+                                                        <markdown:MarkdownTextBlock Text="{x:Bind ViewModel.Summary, Mode=OneWay}" Style="{StaticResource DetailsMarkdownStyle}"
+                                                                   LinkClicked="Markdown_LinkClicked" ImageResolving="Markdown_ImageResolving"
+                                                                   AutomationProperties.AutomationId="SummaryMarkdown" AutomationProperties.Name="Local AI summary of the previewed discussion" />
+                                                    </StackPanel>
+                                                </ScrollViewer>
+                                            </Grid>
+                                        </Border>
+                                <ListView x:Name="DetailsScroll" SelectionMode="None" IsItemClickEnabled="False"
                                           ItemsSource="{x:Bind ViewModel.PreviewActivities, Mode=OneWay}"
                                           HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                           Loaded="DetailsScroll_Loaded" PreviewKeyDown="DetailsScroll_PreviewKeyDown"
@@ -497,27 +549,6 @@
                                                 <TextBlock Text="{x:Bind ViewModel.SelectedItem.FollowUpStatus, Mode=OneWay, FallbackValue=''}"
                                                            Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap" AutomationProperties.AutomationId="FollowUpStatus" />
                                             </StackPanel>
-
-                                            <Border CornerRadius="8" Padding="16,12" Margin="0,4,0,0" BorderThickness="1"
-                                                    BorderBrush="{x:Bind local:MainPage.SummaryAccentBrush(ViewModel.SummaryFailed), Mode=OneWay}"
-                                                    Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                                                    Visibility="{x:Bind local:MainPage.SummaryVisible(ViewModel.IsSummarizing, ViewModel.SummaryStatus, ViewModel.Summary), Mode=OneWay}">
-                                                <StackPanel Spacing="8">
-                                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                                        <PathIcon x:Name="SummaryHeaderIcon" Foreground="{x:Bind local:MainPage.SummaryAccentBrush(ViewModel.SummaryFailed), Mode=OneWay}" VerticalAlignment="Center" />
-                                                        <TextBlock Text="{x:Bind local:MainPage.SummaryTitle(ViewModel.SummaryFailed), Mode=OneWay}" Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center"
-                                                                   AutomationProperties.AutomationId="SummaryTitle" />
-                                                    </StackPanel>
-                                                    <ProgressBar IsIndeterminate="True" Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsSummarizing), Mode=OneWay}" />
-                                                    <TextBlock Text="{x:Bind ViewModel.SummaryStatus, Mode=OneWay}" TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}"
-                                                               Foreground="{x:Bind local:MainPage.SummaryStatusBrush(ViewModel.SummaryFailed), Mode=OneWay}"
-                                                               Visibility="{x:Bind local:MainPage.TextVisible(ViewModel.SummaryStatus), Mode=OneWay}" AutomationProperties.AutomationId="SummaryStatus" />
-                                                    <markdown:MarkdownTextBlock Text="{x:Bind ViewModel.Summary, Mode=OneWay}" Style="{StaticResource DetailsMarkdownStyle}"
-                                                               Visibility="{x:Bind local:MainPage.TextVisible(ViewModel.Summary), Mode=OneWay}"
-                                                               LinkClicked="Markdown_LinkClicked" ImageResolving="Markdown_ImageResolving"
-                                                               AutomationProperties.AutomationId="SummaryMarkdown" AutomationProperties.Name="Local AI summary of selected unread discussions" />
-                                                </StackPanel>
-                                            </Border>
 
                                             <Grid Margin="0,8,0,0" ColumnSpacing="12">
                                                 <Grid.ColumnDefinitions>
@@ -619,6 +650,7 @@
                                         </StackPanel>
                                     </ListView.Footer>
                                 </ListView>
+                                </Grid>
 
                                 <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Margin="24" IsHitTestVisible="False"
                                             Visibility="{x:Bind local:MainPage.CollapsedWhen(ViewModel.HasSelectedItem), Mode=OneWay}">
@@ -767,9 +799,19 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBlock Text="{x:Bind ViewModel.Status, Mode=OneWay}" TextTrimming="CharacterEllipsis" Style="{ThemeResource CaptionTextBlockStyle}"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" ToolTipService.ToolTip="{x:Bind ViewModel.Status, Mode=OneWay}"
-                       AutomationProperties.AutomationId="ApplicationStatus" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <ProgressRing Width="14" Height="14" MinWidth="0" MinHeight="0" Margin="0,0,8,0" VerticalAlignment="Center"
+                              IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}"
+                              Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsBusy), Mode=OneWay}"
+                              AutomationProperties.AutomationId="RefreshProgress" AutomationProperties.Name="Refreshing" />
+                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.Status, Mode=OneWay}" TextTrimming="CharacterEllipsis" Style="{ThemeResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" ToolTipService.ToolTip="{x:Bind ViewModel.Status, Mode=OneWay}"
+                           AutomationProperties.AutomationId="ApplicationStatus" />
+            </Grid>
             <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.SelectionStatus, Mode=OneWay}" MaxWidth="520" TextTrimming="CharacterEllipsis"
                        Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                        AutomationProperties.LiveSetting="Polite" AutomationProperties.AutomationId="SelectionStatus" />

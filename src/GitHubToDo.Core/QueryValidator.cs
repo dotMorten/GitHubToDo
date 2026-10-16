@@ -34,6 +34,7 @@ public static partial class QueryValidator
             if (!match.Success) continue;
             var name = match.Groups["name"].Value;
             var value = match.Groups["value"].Value;
+            if (name.Equals("sort", StringComparison.OrdinalIgnoreCase)) continue;
             if (QueryLanguage.Find(name) is not { } doc)
             {
                 var hint = Closest(name) is { } close ? $" Did you mean {close}:?" : "";

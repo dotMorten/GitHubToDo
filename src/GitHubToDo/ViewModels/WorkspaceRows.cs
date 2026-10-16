@@ -17,6 +17,9 @@ public sealed class QueryRow : ObservableObject
     public int PendingCount => _pendingCount;
     public string Badge => (IsSavedQuery ? "" : $"{Query.TotalCount} items · ") +
         $"{UnreadCount}" + (PendingCount > 0 ? $" · {PendingCount} pending" : "");
+    public string SidebarBadge => !IsSavedQuery ? Query.TotalCount.ToString() :
+        PendingCount > 0 ? $"{UnreadCount} · …" : UnreadCount.ToString();
+    public bool IsSidebarBadgeVisible => !IsSavedQuery || IsUnread || PendingCount > 0;
     public bool IsUnread => UnreadCount > 0;
 
     public QueryRow(SavedQuery query, AccountSnapshot account)
@@ -39,7 +42,12 @@ public sealed class QueryRow : ObservableObject
         var badgeChanged = SetProperty(ref _unreadCount, unread, nameof(UnreadCount));
         badgeChanged |= oldTotal != query.TotalCount;
         badgeChanged |= SetProperty(ref _pendingCount, pending, nameof(PendingCount));
-        if (badgeChanged) OnPropertyChanged(nameof(Badge));
+        if (badgeChanged)
+        {
+            OnPropertyChanged(nameof(Badge));
+            OnPropertyChanged(nameof(SidebarBadge));
+            OnPropertyChanged(nameof(IsSidebarBadgeVisible));
+        }
         if (wasUnread != IsUnread) OnPropertyChanged(nameof(IsUnread));
     }
 }
@@ -128,6 +136,8 @@ public sealed class ItemRow : ObservableObject
     private string _latest = "";
     private string _latestBody = "";
     private bool _isUnread;
+    private bool _canMarkRead;
+    private bool _canMarkUnread;
     private bool _isSelected;
     private string _kind = "";
     private string _repositoryNumber = "";
@@ -179,6 +189,8 @@ public sealed class ItemRow : ObservableObject
     public string Latest => _latest;
     public string LatestBody => _latestBody;
     public bool IsUnread => _isUnread;
+    public bool CanMarkRead => _canMarkRead;
+    public bool CanMarkUnread => _canMarkUnread;
     public bool IsSelected
     {
         get => _isSelected;
@@ -190,6 +202,33 @@ public sealed class ItemRow : ObservableObject
     }
     public string AccessibleName => $"{Title}, {ReadLabel}, {Metadata}, {UnreadCountDescription}" +
         (HasFollowUps ? ", flagged for follow-up" : "") + (IsSelected ? ", selected" : "");
+
+    public UnreadSummarySource? CreateUnreadSummarySource() => Item.HasBaseline && UnreadActivities.Count > 0
+        ? new($"{RepositoryNumber}: {Title}", Item.Url, UnreadActivities.Select(row => row.Activity).ToArray(),
+            AllCommentsUnread: UnreadActivities.Count == DiscussionActivities.Count)
+        : null;
+
+    public UnreadSummarySource? CreateEntireSummarySource() => Item.HasBaseline
+        ? new($"{RepositoryNumber}: {Title}", Item.Url,
+            [new Activity($"{Id}:description", ActivityKind.InitialItem, Item.AuthorId, Item.AuthorLogin,
+                Item.CreatedAt, Item.Body, Item.Url), .. DiscussionActivities.Select(row => row.Activity)],
+            EntireDiscussion: true)
+        : null;
+
+    /// <summary>
+    /// A summary describes the unread excerpt captured when generation started, not a live unread
+    /// filter. Acknowledging that excerpt does not change its meaning. New discussion activity or
+    /// edits/deletions within the captured excerpt do; edits to unrelated read history do not.
+    /// </summary>
+    public bool IsUnreadSummaryCurrent(UnreadSummarySource source, IReadOnlySet<string> knownDiscussionIds)
+    {
+        if (!Item.HasBaseline || source.EntireDiscussion ||
+            source.Item != $"{RepositoryNumber}: {Title}" || source.Url != Item.Url)
+            return false;
+        var current = DiscussionActivities.ToDictionary(row => row.Id, row => row.Activity);
+        return current.Keys.All(knownDiscussionIds.Contains) &&
+            source.Activities.All(activity => current.TryGetValue(activity.Id, out var present) && present == activity);
+    }
 
     public ItemRow(TrackedItem item, AccountSnapshot account)
     {
@@ -223,7 +262,9 @@ public sealed class ItemRow : ObservableObject
         var status = ReadStatePolicy.Evaluate(item, account.User.Id, account.IgnoredAccounts);
         nameChanged |= SetProperty(ref _readLabel, status.ToString(), nameof(ReadLabel));
         SetProperty(ref _isUnread, status == ReadStatus.Unread, nameof(IsUnread));
-        SetProperty(ref _freshness, item.ActivityError is not null ? $"Stale — {item.ActivityError}" :
+        SetProperty(ref _canMarkRead, status == ReadStatus.Unread, nameof(CanMarkRead));
+        SetProperty(ref _canMarkUnread, status == ReadStatus.Read, nameof(CanMarkUnread));
+        SetProperty(ref _freshness, (item.ActivityError ?? item.MetadataError) is { } activityError ? $"Stale — {activityError}" :
             item.ActivityCheckedAt is { } time ? $"Activity checked {time.ToLocalTime():g}" :
             "Activity pending — read state unknown", nameof(Freshness));
         var latest = ReadStatePolicy.Eligible(item, account.IgnoredAccounts)
@@ -303,7 +344,7 @@ public sealed class DiscussionPreview
 
 public sealed class WorkspaceRows
 {
-    public const string FollowUpsQueryId = "__follow-ups";
+    public const string FollowUpsQueryId = WorkspaceService.FollowUpsQueryId;
     public ObservableCollection<QueryRow> Queries { get; } = [];
     public ObservableCollection<ItemRow> Items { get; } = [];
     public ObservableCollection<ItemRow> SelectedItems { get; } = [];

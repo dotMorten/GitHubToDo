@@ -33,6 +33,10 @@ public sealed class TrackedItem
     public bool HasFollowUps => IsFlagged || FlaggedActivityIds.Count > 0;
     public bool HasBaseline { get; set; }
     public DateTimeOffset? ActivityCheckedAt { get; set; }
+    public ActivityMetadata? ActivityMetadata { get; set; }
+    public ActivityMetadata? LoadedActivityMetadata { get; set; }
+    public DateTimeOffset? MetadataCheckedAt { get; set; }
+    public string? MetadataError { get; set; }
     public string? ActivityError { get; set; }
 }
 
@@ -46,13 +50,14 @@ public sealed class SavedQuery
     public bool IsIncomplete { get; set; }
     public DateTimeOffset? LastRefreshedAt { get; set; }
     public DateTimeOffset? LastFullRefreshedAt { get; set; }
+    public DateTimeOffset? LastFullSearchAttemptAt { get; set; }
     public string? Error { get; set; }
 
     public static List<SavedQuery> Defaults() =>
     [
-        new() { Name = "Issues involving me", Expression = "is:issue state:open archived:false involves:@me sort:updated-desc" },
-        new() { Name = "My pull requests", Expression = "is:pr author:@me state:open sort:updated-desc" },
-        new() { Name = "Review requested", Expression = "is:pr review-requested:@me state:open archived:false sort:updated-desc" }
+        new() { Name = "Items involving me", Expression = "state:open archived:false involves:@me" },
+        new() { Name = "My pull requests", Expression = "is:pr author:@me state:open" },
+        new() { Name = "Review requested", Expression = "is:pr review-requested:@me state:open archived:false" }
     ];
 }
 
@@ -75,11 +80,20 @@ public sealed record SearchResult(IReadOnlyList<TrackedItem> Items, int TotalCou
 public sealed record ItemReadSnapshot(string ItemId, IReadOnlyList<string> ActivityIds);
 public sealed record BatchResult<T>(T? Value, Exception? Error) where T : class;
 public sealed record HttpCacheEntry(string? ETag, string? LastModified, string Body, string? Link);
+public sealed record ActivityMetadata(DateTimeOffset UpdatedAt, int CommentCount, int ReviewCount, int TotalCommentCount,
+    string? LatestReviewId = null, DateTimeOffset? LatestReviewUpdatedAt = null);
 
 public static class GitHubBatching
 {
     public const int SearchesPerRequest = 8;
     public const int ItemsPerRequest = 10;
+    public const int MetadataPerRequest = 100;
+}
+
+public interface IActivityMetadataClient
+{
+    Task<IReadOnlyDictionary<string, BatchResult<ActivityMetadata>>> GetActivityMetadataBatchAsync(
+        IReadOnlyList<TrackedItem> items, CancellationToken cancellationToken);
 }
 
 public interface ICredentialStore

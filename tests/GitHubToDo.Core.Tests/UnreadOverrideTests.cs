@@ -114,6 +114,7 @@ public sealed class UnreadOverrideTests
         await workspace.OpenAsync(client.User);
         await workspace.RefreshAsync();
         var initialId = workspace.Account!.Items["item"].Activities.Single().Id;
+        client.Metadata = item => new(item.UpdatedAt, 1, 0, 1);
         client.Activity = (_, _) => Task.FromResult<IReadOnlyList<Activity>>(
             [new("later", ActivityKind.Comment, "other", "other", DateTimeOffset.UtcNow, "later", "")]);
         await workspace.RefreshAsync();

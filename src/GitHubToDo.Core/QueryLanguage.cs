@@ -28,7 +28,7 @@ public static class QueryLanguage
         "Use OR and parentheses to group alternatives, e.g. (author:@me OR assignee:@me). " +
         "Quote values that contain spaces, e.g. label:\"good first issue\". Free words search titles and bodies. " +
         "@me means the signed-in account. Dates use YYYY-MM-DD with >, >=, <, <= or start..end ranges. " +
-        "sort: is ignored: results are always the most recently updated first.";
+        "GitHub searches always retrieve the most recently updated items first.";
 
     private static readonly string[] TrueFalse = ["true", "false"];
 
@@ -127,11 +127,7 @@ public static class QueryLanguage
         new("interactions", "Dates and counts", QualifierValueKind.Number,
             "Reactions plus comments.", "interactions:>N", ["interactions:>50"]),
         new("reactions", "Dates and counts", QualifierValueKind.Number,
-            "Number of reactions.", "reactions:>N", ["reactions:>=20"]),
-
-        new("sort", "Sorting", QualifierValueKind.Text,
-            "Accepted but ignored: this app always shows the most recently updated items first.",
-            "sort:updated-desc", ["sort:updated-desc"])
+            "Number of reactions.", "reactions:>N", ["reactions:>=20"])
     ];
 
     private static readonly Dictionary<string, QualifierDoc> s_byName =
@@ -143,7 +139,7 @@ public static class QueryLanguage
     public static string Reference()
     {
         var lines = new List<string> { Overview, "Qualifiers:" };
-        foreach (var doc in Qualifiers.Where(doc => doc.Name != "sort"))
+        foreach (var doc in Qualifiers)
         {
             var values = doc.Values is { Count: > 0 } ? $" Values: {string.Join(", ", doc.Values)}." : "";
             lines.Add($"- {doc.Syntax} — {doc.Summary}{values}{(doc.SupportsMe ? " Accepts @me." : "")}");

@@ -5,15 +5,20 @@ using static GitHubToDo.Core.GitHubHttp;
 namespace GitHubToDo.Core;
 
 public sealed class GraphQlGitHubClient(
-    HttpClient http, Func<CancellationToken, Task<string>> accessToken, LocalStore store) : IGitHubClient
+    HttpClient http, Func<CancellationToken, Task<string>> accessToken, LocalStore store) : IGitHubClient, IActivityMetadataClient
 {
     private const string AuthorFields = "author { login ... on User { databaseId } ... on Bot { databaseId } }";
-    private const string CommentFields = "id databaseId fullDatabaseId createdAt body url " + AuthorFields;
+    private const string CommentFields = "id databaseId fullDatabaseId createdAt updatedAt body url " + AuthorFields;
     private const string InlineFields = CommentFields + " state publishedAt";
     private const string PageFields = "pageInfo { hasNextPage endCursor }";
     private const string ItemFields = "id number title body url createdAt updatedAt repository { nameWithOwner } " + AuthorFields;
+    private const string MetadataFields = "updatedAt comments { totalCount }";
+    private const string ReviewMetadataFields =
+        "totalCommentsCount reviews(last: 1, states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) " +
+        "{ totalCount nodes { databaseId fullDatabaseId updatedAt } }";
     private const string SearchFields = "nodes { __typename ... on Issue { " + ItemFields +
-        " issueState: state } ... on PullRequest { " + ItemFields + " prState: state } }";
+        " comments { totalCount } issueState: state } ... on PullRequest { " + ItemFields +
+        " comments { totalCount } " + ReviewMetadataFields + " prState: state } }";
     private readonly GitHubClient identities = new(http, accessToken, store);
     private readonly SemaphoreSlim requestGate = new(1);
     private DateTimeOffset notBefore;
@@ -130,6 +135,35 @@ public sealed class GraphQlGitHubClient(
         return results;
     }
 
+    public async Task<IReadOnlyDictionary<string, BatchResult<ActivityMetadata>>> GetActivityMetadataBatchAsync(
+        IReadOnlyList<TrackedItem> items, CancellationToken cancellationToken)
+    {
+        var results = new Dictionary<string, BatchResult<ActivityMetadata>>();
+        foreach (var batch in items.DistinctBy(item => item.Id).Chunk(GitHubBatching.MetadataPerRequest))
+        {
+            var request = new GraphRequest();
+            var work = new List<MetadataWork>();
+            foreach (var item in batch)
+            {
+                var job = new MetadataWork(item);
+                work.Add(job);
+                var index = request.Parts.Count;
+                var id = request.Variable($"id{index}", "ID!", item.Id);
+                var type = item.IsPullRequest ? "PullRequest" : "Issue";
+                request.Add($"n{index}", $"node(id: {id}) {{ __typename ... on {type} {{ {MetadataFields} " +
+                    (item.IsPullRequest ? ReviewMetadataFields : "") + " } }", job, node =>
+                    {
+                        RequireType(node, type);
+                        job.Metadata = ParseMetadata(node, item.IsPullRequest);
+                    });
+            }
+            await ExecuteAsync(request, cancellationToken);
+            foreach (var job in work)
+                results[job.Item.Id] = new(job.Error is null ? job.Metadata : null, job.Error);
+        }
+        return results;
+    }
+
     private static void AddItemRequest(GraphRequest request, ActivityWork job)
     {
         var index = request.Parts.Count;
@@ -138,7 +172,8 @@ public sealed class GraphQlGitHubClient(
         if (!job.Comments.Done)
         {
             var after = request.Variable($"c{index}", "String", job.Comments.Cursor);
-            comments = $"comments(first: 50, after: {after}) {{ {PageFields} nodes {{ {CommentFields} }} }}";
+            var order = job.IncrementalComments ? "orderBy: {field: UPDATED_AT, direction: DESC}, " : "";
+            comments = $"comments(first: 50, {order}after: {after}) {{ {PageFields} nodes {{ {CommentFields} }} }}";
         }
         var reviews = "";
         if (!job.Reviews.Done)
@@ -157,7 +192,20 @@ public sealed class GraphQlGitHubClient(
                 var connection = node.GetProperty("comments");
                 foreach (var comment in Nodes(connection))
                     AddActivity(job, comment, ActivityKind.Comment, "comment", Date(comment, "createdAt"));
-                job.Comments.Advance(connection);
+                if (job.IncrementalComments && Nodes(connection).Any(comment =>
+                    Date(comment, "updatedAt") < job.Item.ActivityCheckedAt!.Value.AddMinutes(-5)))
+                    job.Comments.Done = true;
+                else
+                    job.Comments.Advance(connection);
+                if (job.IncrementalComments && job.Comments.Done &&
+                    job.Activities.Values.Count(activity => activity.Kind == ActivityKind.Comment) != job.Item.ActivityMetadata!.CommentCount)
+                {
+                    // A deletion or a concurrent change invalidates an append-only merge; reconcile this stream.
+                    job.IncrementalComments = false;
+                    job.Comments = new();
+                    foreach (var activity in job.Activities.Values.Where(activity => activity.Kind == ActivityKind.Comment).ToArray())
+                        job.Activities.Remove(activity.Id);
+                }
             }
             if (!job.Reviews.Done)
             {
@@ -335,8 +383,22 @@ public sealed class GraphQlGitHubClient(
             AuthorId = author.Id,
             AuthorLogin = author.Login,
             CreatedAt = Date(node, "createdAt"),
-            UpdatedAt = Date(node, "updatedAt")
+            UpdatedAt = Date(node, "updatedAt"),
+            ActivityMetadata = ParseMetadata(node, type == "PullRequest")
         };
+    }
+
+    private static ActivityMetadata ParseMetadata(JsonElement node, bool isPullRequest)
+    {
+        var comments = node.GetProperty("comments").GetProperty("totalCount").GetInt32();
+        var latestReview = isPullRequest ? Nodes(node.GetProperty("reviews")).LastOrDefault() : default;
+        var reviewId = latestReview.ValueKind == JsonValueKind.Object
+            ? LegacyId(latestReview, "fullDatabaseId") ?? LegacyId(latestReview, "databaseId") : null;
+        return new(Date(node, "updatedAt"), comments,
+            isPullRequest ? node.GetProperty("reviews").GetProperty("totalCount").GetInt32() : 0,
+            isPullRequest ? node.GetProperty("totalCommentsCount").GetInt32() : comments,
+            reviewId is null ? null : $"review:{reviewId}",
+            latestReview.ValueKind == JsonValueKind.Object ? Date(latestReview, "updatedAt") : null);
     }
 
     private static void AddActivity(ActivityWork job, JsonElement node, ActivityKind kind, string prefix, DateTimeOffset time)
@@ -348,7 +410,7 @@ public sealed class GraphQlGitHubClient(
         var body = node.GetProperty("body").GetString()!;
         if (kind == ActivityKind.Review) body = $"{Text(node, "state")}: {body}";
         var activity = new Activity($"{prefix}:{id}", kind, author.Id, author.Login, time, body, node.GetProperty("url").GetString()!);
-        job.Activities.TryAdd(activity.Id, activity);
+        job.Activities[activity.Id] = activity;
     }
 
     private static (string? Id, string? Login) Author(JsonElement node)
@@ -386,14 +448,33 @@ public sealed class GraphQlGitHubClient(
         public int Total { get; set; }
     }
 
-    private sealed class ActivityWork(TrackedItem item) : Work
+    private sealed class MetadataWork(TrackedItem item) : Work
     {
         public TrackedItem Item { get; } = item;
-        public Page Comments { get; } = new();
-        public Page Reviews { get; } = new() { Done = !item.IsPullRequest };
+        public ActivityMetadata? Metadata { get; set; }
+    }
+
+    private sealed class ActivityWork : Work
+    {
+        public TrackedItem Item { get; }
+        public bool IncrementalComments { get; set; }
+        public Page Comments { get; set; } = new();
+        public Page Reviews { get; }
         public List<ReviewComments> CommentPages { get; } = [];
         public Dictionary<string, Activity> Activities { get; } = [];
         public bool Complete => Comments.Done && Reviews.Done && CommentPages.All(review => review.Page.Done);
+
+        public ActivityWork(TrackedItem item)
+        {
+            Item = item;
+            Reviews = new() { Done = !item.IsPullRequest };
+            IncrementalComments = item.HasBaseline && item.ActivityCheckedAt is not null &&
+                item.ActivityMetadata is { } metadata &&
+                metadata.CommentCount >= item.Activities.Count(activity => activity.Kind == ActivityKind.Comment);
+            if (IncrementalComments)
+                foreach (var activity in item.Activities.Where(activity => activity.Kind == ActivityKind.Comment))
+                    Activities.Add(activity.Id, activity);
+        }
     }
 
     private sealed class ReviewComments(string id, DateTimeOffset submittedAt)

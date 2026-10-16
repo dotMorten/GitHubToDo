@@ -7,7 +7,7 @@ public sealed record ParsedQuery(string Search, string? Sort, string? Order);
 
 public static partial class QueryParser
 {
-    public const string ReviewsQuery = "is:pr review-requested:@me state:open archived:false sort:updated-desc";
+    public const string ReviewsQuery = "is:pr review-requested:@me state:open archived:false";
 
     public static string ExtractExpression(string input)
     {

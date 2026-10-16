@@ -54,6 +54,7 @@ public sealed partial class MainPage : Page
         _commentReadTimer.Tick += async (_, _) => await CommitScrollReadAsync();
         DetailsScroll.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler(DetailsScroll_PointerWheelChanged), true);
         SummarizeIcon.Data = Octicons.Geometry(Octicons.Sparkle);
+        SummarizeUnreadIcon.Data = Octicons.Geometry(Octicons.Sparkle);
         SummaryHeaderIcon.Data = Octicons.Geometry(Octicons.Sparkle);
         EmptyListIcon.Data = Octicons.Geometry(Octicons.CheckCircle);
         EmptyDetailsIcon.Data = Octicons.Geometry(Octicons.Inbox);
@@ -104,11 +105,9 @@ public sealed partial class MainPage : Page
     public static Visibility TextVisible(string? value) => Visible(HasText(value));
     public static Visibility WorkspaceVisible(bool settings, bool signedIn) => Visible(!settings && signedIn);
     public static string CountLabel(int count, string noun) => $"{count:N0} {noun}";
-    public static Visibility SummaryVisible(bool summarizing, string? status, string? summary) =>
-        Visible(summarizing || HasText(status) || HasText(summary));
     public static Brush TimeBrush(bool unread) => (Brush)Application.Current.Resources[
         unread ? "AccentTextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush"];
-    public static string SummaryTitle(bool failed) => failed ? "Couldn't summarize" : "Catch-up summary";
+    public static string SummaryTitle(bool failed, string heading) => failed ? "Couldn't summarize" : heading;
     public static Brush SummaryAccentBrush(bool failed) => (Brush)Application.Current.Resources[
         failed ? "SystemFillColorCriticalBrush" : "AccentTextFillColorPrimaryBrush"];
     public static Brush SummaryStatusBrush(bool failed) => (Brush)Application.Current.Resources[
@@ -238,16 +237,18 @@ public sealed partial class MainPage : Page
         }
         entry.Name.Text = row.Name;
         entry.Name.FontWeight = UnreadWeight(row.IsUnread);
-        entry.Badge.Text = row.PendingCount > 0 ? $"{row.UnreadCount} · …" : row.UnreadCount.ToString();
+        entry.Badge.Text = row.SidebarBadge;
         var accent = row.IsUnread;
         entry.Pill.Style = (Style)Resources[accent ? "QueryPillUnreadStyle" : "QueryPillPendingStyle"];
         entry.Badge.Style = (Style)Resources[accent ? "QueryPillTextUnreadStyle" : "QueryPillTextPendingStyle"];
-        // Keep zero-count badges in the automation tree, but visually quiet.
-        entry.Pill.Opacity = row.IsUnread || row.PendingCount > 0 ? 1 : 0;
+        // Keep empty saved-query badges in the automation tree, but visually quiet.
+        entry.Pill.Opacity = row.IsSidebarBadgeVisible ? 1 : 0;
         ToolTipService.SetToolTip(entry.Item, row.IsSavedQuery
             ? $"{row.Name}\n{row.Query.Expression}\n{row.Badge}"
             : $"{row.Name}\n{row.Badge}");
-        AutomationProperties.SetName(entry.Item, $"{row.Name}, {row.UnreadCount} unread, {row.PendingCount} pending");
+        AutomationProperties.SetName(entry.Item, $"{row.Name}, " +
+            (row.IsSavedQuery ? "" : $"{row.Query.TotalCount} items, ") +
+            $"{row.UnreadCount} unread, {row.PendingCount} pending");
     }
 
     private void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -620,9 +621,43 @@ public sealed partial class MainPage : Page
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
+        if (args.PropertyName == nameof(ShellViewModel.IsSummaryOpen))
+        {
+            // Pane reflow is not a reading gesture. Do not let a previously armed scroll
+            // observation acknowledge comments just because summary generation changed the layout.
+            CancelScrollReading();
+            if (ViewModel.IsSummaryOpen)
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (ViewModel.IsSummaryOpen) CloseSummaryButton.Focus(FocusState.Programmatic);
+                });
+        }
         if (args.PropertyName != nameof(ShellViewModel.SelectedItem)) return;
         QueueItemSelection();
         RestoreUnreadPosition();
+    }
+
+    private void SummaryLayout_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        // Preserve a useful discussion column; on smaller windows use the same right-hand pane
+        // as an overlay rather than squeezing or clipping the thread.
+        CancelScrollReading();
+        // Keep the same pane alive across the breakpoint. SplitView's native light-dismiss
+        // transition can asynchronously close a pane while switching Inline/Overlay modes.
+        // A Grid placement change cannot dismiss it or cancel a running summary on resize.
+        var isInline = args.NewSize.Width >= 800;
+        Grid.SetColumn(SummaryPaneBorder, isInline ? 1 : 0);
+        SummaryPaneBorder.HorizontalAlignment = isInline ? HorizontalAlignment.Stretch : HorizontalAlignment.Right;
+        SummaryPaneBorder.Width = Math.Max(0, Math.Min(360, args.NewSize.Width));
+    }
+
+    private void SummaryPane_KeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (args.Key == Windows.System.VirtualKey.Escape && ViewModel.IsSummaryOpen)
+        {
+            ViewModel.CloseSummaryCommand.Execute(null);
+            args.Handled = true;
+        }
     }
 
     private void CancelScrollReading()

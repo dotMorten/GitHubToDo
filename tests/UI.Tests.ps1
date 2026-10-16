@@ -194,21 +194,29 @@ try {
         }
         Assert-Ui 'Setup screenshot' { Save-Image 'setup.png' }
     } elseif ($Mode -in @('polling', 'refresh')) {
-        Assert-Ui 'Application has completed a full search with known cached coverage' {
+        Assert-Ui 'Application displays the saved query instead of refresh diagnostics' {
             Invoke-Ui @('wait-for', 'ApplicationStatus', '--value', 'Checked at', '--contains', '-t', '10000')
             Invoke-Ui @('wait-for', 'RefreshProgress', '--gone')
-            Invoke-Ui @('wait-for', 'QueryCoverageStatus', '--value', '3 loaded / 3 matching', '--contains')
+            Invoke-Ui @('wait-for', 'QuerySearchExpression', '--value', 'state:open archived:false involves:@me')
+            Invoke-Ui @('wait-for', 'QueryCoverageStatus', '--gone')
         }
         if ($Mode -eq 'polling') {
-            Assert-Ui 'The real two-minute timer performs an incremental poll and preserves full-search coverage' {
-                Invoke-Ui @('wait-for', 'QueryCoverageStatus', '--value', 'matching at last full search', '--contains', '-t', '140000')
-                Invoke-Ui @('wait-for', 'QueryCoverageStatus', '--value', 'Full membership checked', '--contains')
+            Assert-Ui 'The real two-minute timer refreshes without changing the displayed query' {
+                $previous = (Invoke-Ui @('get-property', 'ApplicationStatus', '-p', 'Name', '--json') | ConvertFrom-Json).properties.Name
+                $deadline = [DateTime]::UtcNow.AddSeconds(140)
+                do {
+                    Start-Sleep -Seconds 1
+                    $current = (Invoke-Ui @('get-property', 'ApplicationStatus', '-p', 'Name', '--json') | ConvertFrom-Json).properties.Name
+                } while ($current -eq $previous -and [DateTime]::UtcNow -lt $deadline)
+                if ($current -eq $previous) { throw 'The polling timer did not update the application status.' }
+                Invoke-Ui @('wait-for', 'ApplicationStatus', '--value', 'Checked at', '--contains', '-t', '10000')
+                Invoke-Ui @('wait-for', 'QuerySearchExpression', '--value', 'state:open archived:false involves:@me')
                 Save-Image '01-incremental-poll.png'
             }
         }
-        Assert-Ui 'Refresh button checks only recent updates instead of forcing full reconciliation' {
+        Assert-Ui 'Refresh button preserves the displayed query' {
             Invoke-Ui @('invoke', 'Refresh')
-            Invoke-Ui @('wait-for', 'QueryCoverageStatus', '--value', 'matching at last full search', '--contains')
+            Invoke-Ui @('wait-for', 'QuerySearchExpression', '--value', 'state:open archived:false involves:@me')
             Invoke-Ui @('wait-for', 'ApplicationStatus', '--value', 'Checked at', '--contains', '-t', '10000')
             Invoke-Ui @('wait-for', 'RefreshProgress', '--gone')
             Save-Image '02-manual-incremental-refresh.png'
@@ -218,20 +226,20 @@ try {
             Invoke-Ui @('wait-for', 'FullRefresh')
             Save-Image '03-full-reconciliation-command.png'
             Invoke-Ui @('invoke', 'FullRefresh')
-            Invoke-Ui @('wait-for', 'QueryCoverageStatus', '--value', '3 loaded / 3 matching ·', '--contains')
+            Invoke-Ui @('wait-for', 'QuerySearchExpression', '--value', 'state:open archived:false involves:@me')
             Invoke-Ui @('wait-for', 'ApplicationStatus', '--value', 'Checked at', '--contains', '-t', '10000')
             Invoke-Ui @('wait-for', 'RefreshProgress', '--gone')
             Save-Image '04-explicit-full-refresh.png'
         }
-        Assert-Ui 'F5 changes full-search coverage to a new incremental check' {
+        Assert-Ui 'F5 refresh preserves the displayed query' {
             Invoke-Ui @('send-keys', 'f5', '--target', 'ItemList', '--via', 'send-input')
-            Invoke-Ui @('wait-for', 'QueryCoverageStatus', '--value', 'matching at last full search', '--contains')
+            Invoke-Ui @('wait-for', 'QuerySearchExpression', '--value', 'state:open archived:false involves:@me')
             Invoke-Ui @('wait-for', 'ApplicationStatus', '--value', 'Checked at', '--contains', '-t', '10000')
             Invoke-Ui @('wait-for', 'RefreshProgress', '--gone')
             Save-Image '05-keyboard-incremental-refresh.png'
         }
     } elseif ($Mode -eq 'queries') {
-        Invoke-Ui @('wait-for', 'QueryCoverageStatus', '--value', '2 unread', '--contains', '-t', '10000') | Out-Null
+        Invoke-Ui @('wait-for', 'QueryUnreadCount', '--value', '2 unread', '-t', '10000') | Out-Null
         $queries = @(foreach ($name in @('Issues involving me', 'My pull requests', 'Review requested')) {
             (Invoke-Ui @('get-property', "$name, 2 unread, 0 pending", '-p', 'AutomationId', '--json') | ConvertFrom-Json).element
         })
@@ -322,7 +330,7 @@ try {
             }
         }
     } elseif ($Mode -eq 'builder') {
-        Invoke-Ui @('wait-for', 'QueryCoverageStatus', '--value', '2 unread', '--contains', '-t', '10000') | Out-Null
+        Invoke-Ui @('wait-for', 'QueryUnreadCount', '--value', '2 unread', '-t', '10000') | Out-Null
         Assert-Ui 'New query opens the builder with documented qualifiers' {
             Invoke-Ui @('invoke', 'AddQuerySidebar')
             Invoke-Ui @('wait-for', 'QueryExpression')
@@ -417,7 +425,7 @@ try {
             }
         }
     } elseif ($Mode -eq 'reading') {
-        Invoke-Ui @('wait-for', 'QueryCoverageStatus', '--value', '2 unread', '--contains', '-t', '10000') | Out-Null
+        Invoke-Ui @('wait-for', 'QueryUnreadCount', '--value', '2 unread', '-t', '10000') | Out-Null
         $saved = Get-Tree | Where-Object { $_.automationId -like 'Query_*' -and $_.name.StartsWith('Issues involving me') } | Select-Object -First 1
         if (-not $saved) { throw 'No saved issue query.' }
         Assert-Ui 'Unread comment counts and local Follow-ups view are present' {
@@ -548,7 +556,12 @@ try {
             Assert-Counts 0
         }
     } elseif ($Mode -in @('table', 'inbox')) {
-        Invoke-Ui @('wait-for', 'QueryCoverageStatus', '--value', "$ExpectedUnread unread", '--contains', '-t', '5000') | Out-Null
+        Invoke-Ui @('wait-for', 'ApplicationStatus', '--value', 'Checked at', '--contains', '-t', '10000') | Out-Null
+        if ($ExpectedUnread -eq 0) {
+            Invoke-Ui @('wait-for', 'QueryUnreadCount', '--gone', '-t', '5000') | Out-Null
+        } else {
+            Invoke-Ui @('wait-for', 'QueryUnreadCount', '--value', "$ExpectedUnread unread", '-t', '5000') | Out-Null
+        }
         # Column layout persists across runs; start from defaults.
         Invoke-Ui @('invoke', 'TableViewOptions') | Out-Null
         Invoke-Ui @('invoke', 'ResetTableLayout') | Out-Null

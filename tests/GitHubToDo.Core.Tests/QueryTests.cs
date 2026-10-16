@@ -6,6 +6,16 @@ namespace GitHubToDo.Core.Tests;
 public sealed class QueryTests
 {
     [TestMethod]
+    public void NewAccountsStartWithItemsInvolvingMeWithoutATypeFilter()
+    {
+        var account = new AccountSnapshot();
+        var query = account.Queries[0];
+        Assert.AreEqual("Items involving me", query.Name);
+        Assert.AreEqual("state:open archived:false involves:@me", query.Expression);
+        Assert.AreEqual("state:open archived:false involves:viewer", QueryParser.Parse(query.Expression, "viewer").Search);
+    }
+
+    [TestMethod]
     public void ReviewQueryResolvesViewerAndSort()
     {
         var query = QueryParser.Parse("is:pr review-requested:@me state:open archived:false sort:updated-desc", "octocat");

@@ -28,6 +28,172 @@ public sealed class GraphQlGitHubClientTests
     }
 
     [TestMethod]
+    public async Task ThreeHundredUnchangedItemsReconcileWithSearchPagesOnly()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var account = new AccountSnapshot { User = new("1", "viewer"), Queries = [new() { Expression = "is:issue" }] };
+        for (var index = 0; index < 300; index++)
+        {
+            var item = Tracked($"cached-{index}");
+            item.UpdatedAt = DateTimeOffset.Parse(Time);
+            item.HasBaseline = true;
+            item.ActivityCheckedAt = now.AddHours(-1);
+            account.Items.Add(item.Id, item);
+        }
+        account.Queries[0].ItemIds = account.Items.Keys.ToList();
+        account.Queries[0].LastRefreshedAt = now.AddHours(-1);
+        account.Queries[0].LastFullRefreshedAt = now.AddHours(-1);
+        await database.Store.SaveAsync(account);
+        var client = Client((request, call) =>
+        {
+            Assert.DoesNotContain("node(id:", request.GetProperty("query").GetString()!);
+            return Response(new { s0 = Search(Enumerable.Range((call - 1) * 100, 100)
+                .Select(index => Item($"cached-{index}")).ToArray(), 300, call < 3 ? $"page{call}" : null) });
+        });
+        var workspace = new WorkspaceService(database.Store, client);
+        await workspace.OpenAsync(account.User);
+        await workspace.PollAsync();
+        Assert.HasCount(3, requests, "Only the three membership pages, with no discussion or metadata requests.");
+        Assert.IsTrue(workspace.Account!.Items.Values.All(item => item.LoadedActivityMetadata is not null));
+    }
+
+    [TestMethod]
+    public async Task MetadataChecksBatchOneHundredItemsWithoutDownloadingBodies()
+    {
+        var client = Client((request, _) =>
+        {
+            var document = request.GetProperty("query").GetString()!;
+            Assert.DoesNotContain("body", document);
+            Assert.DoesNotContain("comments(first:", document);
+            var ids = request.GetProperty("variables").EnumerateObject().ToArray();
+            Assert.IsLessThanOrEqualTo(100, ids.Length);
+            return Response(ids.ToDictionary(property => $"n{property.Name[2..]}", _ =>
+                new { __typename = "PullRequest", updatedAt = Time, comments = new { totalCount = 2 },
+                    totalCommentsCount = 4, reviews = new { totalCount = 1, nodes = new[] {
+                        new { databaseId = 2, fullDatabaseId = 2, updatedAt = Time } } } }));
+        });
+        var items = Enumerable.Range(0, 201).Select(index => Tracked($"pr-{index}", true)).ToArray();
+        var result = await client.GetActivityMetadataBatchAsync([.. items, items[0]], default);
+        Assert.HasCount(3, requests);
+        Assert.HasCount(201, result);
+        Assert.IsTrue(result.Values.All(value => value.Error is null && value.Value!.ReviewCount == 1 &&
+            value.Value.LatestReviewId == "review:2"));
+    }
+
+    [TestMethod]
+    public async Task MetadataErrorsRemainPerItemWithoutDiscardingSuccessfulChecks()
+    {
+        var client = Client((_, _) => Response(new
+        {
+            n0 = new { __typename = "Issue", updatedAt = Time, comments = new { totalCount = 3 } },
+            n1 = (object?)null
+        }, new[] { new { type = "FORBIDDEN", message = "Item no longer accessible", path = new[] { "n1" } } }));
+        var results = await client.GetActivityMetadataBatchAsync([Tracked("good"), Tracked("forbidden")], default);
+        Assert.HasCount(1, requests);
+        Assert.AreEqual(3, results["good"].Value!.CommentCount);
+        Assert.IsNull(results["good"].Error);
+        Assert.IsNotNull(results["forbidden"].Error);
+        Assert.IsNull(results["forbidden"].Value);
+    }
+
+    [TestMethod]
+    public async Task NewCommentOnFiveHundredCommentThreadFetchesOnlyOneRecentPage()
+    {
+        var item = Tracked("large");
+        item.HasBaseline = true;
+        item.ActivityCheckedAt = DateTimeOffset.Parse(Time).AddDays(1);
+        item.ActivityMetadata = new(item.ActivityCheckedAt.Value.AddDays(1), 501, 0, 501);
+        item.Activities = Enumerable.Range(1, 500).Select(id => new Activity($"comment:{id}", ActivityKind.Comment,
+            "2", "other", DateTimeOffset.Parse(Time), "Cached comment", "")).ToList();
+        var client = Client((request, _) =>
+        {
+            Assert.Contains("orderBy: {field: UPDATED_AT, direction: DESC}", request.GetProperty("query").GetString()!);
+            return Response(new { n0 = ActivityNode(false,
+                [Comment(501, created: "2026-01-03T00:00:00Z"), Comment(500)], [], "old-history-not-needed") });
+        });
+        var result = await client.GetActivityAsync(item, default);
+        Assert.HasCount(1, requests);
+        Assert.HasCount(501, result);
+        Assert.Contains("comment:501", result.Select(activity => activity.Id));
+    }
+
+    [TestMethod]
+    public async Task ConcurrentDeletionDuringIncrementalCommentsReconcilesRatherThanRetainingDeletedContent()
+    {
+        var item = Tracked("changed");
+        item.HasBaseline = true;
+        item.ActivityCheckedAt = DateTimeOffset.Parse(Time).AddDays(1);
+        item.ActivityMetadata = new(item.ActivityCheckedAt.Value.AddDays(1), 2, 0, 2);
+        item.Activities = [new("comment:1", ActivityKind.Comment, "2", "other", DateTimeOffset.Parse(Time), "Deleted", "")];
+        var client = Client((request, call) =>
+        {
+            if (call == 1)
+                return Response(new { n0 = ActivityNode(false,
+                    [Comment(2, created: "2026-01-03T00:00:00Z"), Comment(3, created: "2026-01-03T00:00:00Z")], []) });
+            Assert.DoesNotContain("orderBy:", request.GetProperty("query").GetString()!);
+            return Response(new { n0 = ActivityNode(false, [Comment(2), Comment(3)], []) });
+        });
+        var result = await client.GetActivityAsync(item, default);
+        Assert.HasCount(2, requests);
+        CollectionAssert.AreEquivalent(new[] { "comment:2", "comment:3" }, result.Select(activity => activity.Id).ToArray());
+    }
+
+    [TestMethod]
+    public async Task DecreasedCommentCountDownloadsCompleteHistoryWithoutRetainingDeletedComments()
+    {
+        var item = Tracked("deletion");
+        item.HasBaseline = true;
+        item.ActivityCheckedAt = DateTimeOffset.Parse(Time).AddDays(1);
+        item.ActivityMetadata = new(item.ActivityCheckedAt.Value.AddDays(1), 1, 0, 1);
+        item.Activities = Enumerable.Range(1, 2).Select(id => new Activity($"comment:{id}", ActivityKind.Comment,
+            "2", "other", DateTimeOffset.Parse(Time), "Cached", "")).ToList();
+        var client = Client((request, _) =>
+        {
+            Assert.DoesNotContain("orderBy:", request.GetProperty("query").GetString()!);
+            return Response(new { n0 = ActivityNode(false, [Comment(2)], []) });
+        });
+        var result = await client.GetActivityAsync(item, default);
+        Assert.HasCount(1, requests);
+        Assert.AreEqual("comment:2", result.Single().Id);
+    }
+
+    [TestMethod]
+    public async Task FailedIncrementalFallbackNeverPublishesPartiallyMergedDiscussion()
+    {
+        var item = Tracked("fallback-failure");
+        item.HasBaseline = true;
+        item.ActivityCheckedAt = DateTimeOffset.Parse(Time).AddDays(1);
+        item.ActivityMetadata = new(item.ActivityCheckedAt.Value.AddDays(1), 2, 0, 2);
+        item.Activities = [new("comment:1", ActivityKind.Comment, "2", "other", DateTimeOffset.Parse(Time), "Cached", "")];
+        var client = Client((_, call) => call == 1 ?
+            Response(new { n0 = ActivityNode(false, [Comment(2), Comment(3)], []) }) :
+            Response(new { n0 = (object?)null },
+                new[] { new { type = "FORBIDDEN", message = "Discussion no longer accessible", path = new[] { "n0" } } }));
+        var result = (await client.GetActivityBatchAsync([item], default))[item.Id];
+        Assert.HasCount(2, requests);
+        Assert.IsNotNull(result.Error);
+        Assert.IsNull(result.Value);
+        Assert.AreEqual("comment:1", item.Activities.Single().Id);
+    }
+
+    [TestMethod]
+    public async Task EditedOlderCommentUpdatesItsBodyWithoutDownloadingAllHistory()
+    {
+        var item = Tracked("edited");
+        item.HasBaseline = true;
+        item.ActivityCheckedAt = DateTimeOffset.Parse(Time).AddDays(1);
+        item.ActivityMetadata = new(item.ActivityCheckedAt.Value.AddDays(1), 1, 0, 1);
+        item.Activities = [new("comment:1", ActivityKind.Comment, "2", "other", DateTimeOffset.Parse(Time), "Old", "")];
+        var comment = Comment(1);
+        comment["updatedAt"] = "2026-01-03T00:00:00Z";
+        comment["body"] = "Edited";
+        var client = Client((_, _) => Response(new { n0 = ActivityNode(false, [comment], []) }));
+        var result = await client.GetActivityAsync(item, default);
+        Assert.HasCount(1, requests);
+        Assert.AreEqual("Edited", result.Single().Body);
+    }
+
+    [TestMethod]
     public async Task SearchesShareOneRequestAndForceUpdatedDescendingWithoutCombiningMembership()
     {
         var client = Client((request, _) =>
@@ -516,12 +682,13 @@ public sealed class GraphQlGitHubClientTests
         id, __typename = pr ? "PullRequest" : "Issue", number = 1, title = "Title", body = "Body",
         url = $"https://github.com/o/r/issues/1", createdAt = Time, updatedAt = Time,
         repository = new { nameWithOwner = "o/r" }, author = new { databaseId = 2, login = "other" },
-        issueState = "OPEN", prState = "OPEN"
+        issueState = "OPEN", prState = "OPEN", comments = new { totalCount = 0 },
+        totalCommentsCount = 0, reviews = new { totalCount = 0, nodes = Array.Empty<object>() }
     };
     private static Dictionary<string, object?> Comment(int id, string login = "other", int authorId = 2, string created = Time) => new()
     {
         ["id"] = $"comment{id}", ["databaseId"] = id, ["fullDatabaseId"] = id,
-        ["createdAt"] = created, ["publishedAt"] = created, ["body"] = "Hello",
+        ["createdAt"] = created, ["updatedAt"] = created, ["publishedAt"] = created, ["body"] = "Hello",
         ["url"] = "https://github.com/o/r/pull/1#comment", ["state"] = "SUBMITTED",
         ["author"] = new { databaseId = authorId, login }
     };

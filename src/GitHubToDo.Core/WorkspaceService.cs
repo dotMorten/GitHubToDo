@@ -2,6 +2,7 @@ namespace GitHubToDo.Core;
 
 public sealed class WorkspaceService(LocalStore store, IGitHubClient client, TimeProvider? timeProvider = null)
 {
+    public const string FollowUpsQueryId = "__follow-ups";
     private static readonly TimeSpan FullRefreshInterval = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan SearchOverlap = TimeSpan.FromMinutes(5);
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
@@ -11,6 +12,7 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
     private int refreshGeneration = -1;
     private bool refreshIsFull;
     private bool fullRefreshRequested;
+    private string? refreshQueryId;
     private int generation;
     public AccountSnapshot? Account { get; private set; }
     public string Progress { get; private set; } = "Sign in to start monitoring.";
@@ -242,20 +244,41 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
     public Task CheckForUpdatesAsync(CancellationToken ct = default) =>
         RefreshAsync(ct, full: false, reconcileDue: false);
 
-    public Task RefreshAsync(CancellationToken ct = default, bool full = true, bool reconcileDue = true)
+    public Task CheckForUpdatesAsync(string queryId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(queryId);
+        return StartRefreshAsync(ct, full: false, reconcileDue: false, queryId: queryId);
+    }
+
+    public Task RefreshAsync(CancellationToken ct = default, bool full = true, bool reconcileDue = true) =>
+        StartRefreshAsync(ct, full, reconcileDue, queryId: null);
+
+    private Task StartRefreshAsync(CancellationToken ct, bool full, bool reconcileDue, string? queryId)
     {
         lock (refreshGate)
         {
             if (refreshTask is { IsCompleted: false } && refreshGeneration == generation)
             {
+                if (refreshQueryId is not null && refreshQueryId != queryId)
+                    return RefreshAfterAsync(refreshTask, ct, full, reconcileDue, queryId, generation);
                 if (full && !refreshIsFull) fullRefreshRequested = true;
                 return refreshTask;
             }
             refreshGeneration = generation;
+            refreshQueryId = queryId;
             refreshIsFull = full;
             fullRefreshRequested = full;
-            return refreshTask = RunRefreshAsync(ct, generation, reconcileDue);
+            return refreshTask = RunRefreshAsync(ct, generation, reconcileDue, queryId);
         }
+    }
+
+    private async Task RefreshAfterAsync(Task previous, CancellationToken ct, bool full, bool reconcileDue,
+        string? queryId, int expectedGeneration)
+    {
+        await previous.WaitAsync(ct);
+        ct.ThrowIfCancellationRequested();
+        if (generation == expectedGeneration)
+            await StartRefreshAsync(ct, full, reconcileDue, queryId);
     }
 
     private void Report(string message, int expectedGeneration)
@@ -266,7 +289,7 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
         Changed?.Invoke();
     }
 
-    private async Task RunRefreshAsync(CancellationToken ct, int expectedGeneration, bool reconcileDue)
+    private async Task RunRefreshAsync(CancellationToken ct, int expectedGeneration, bool reconcileDue, string? queryId)
     {
         await Task.Yield();
         while (generation == expectedGeneration)
@@ -278,7 +301,7 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
                 fullRefreshRequested = false;
                 refreshIsFull = full;
             }
-            await RunRefreshPassAsync(ct, full, reconcileDue);
+            await RunRefreshPassAsync(ct, full, reconcileDue, queryId);
             lock (refreshGate)
             {
                 if (generation != expectedGeneration) return;
@@ -289,28 +312,30 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
         }
     }
 
-    private async Task RunRefreshPassAsync(CancellationToken ct, bool full, bool reconcileDue)
+    private async Task RunRefreshPassAsync(CancellationToken ct, bool full, bool reconcileDue, string? queryId)
     {
         var current = Account ?? throw new InvalidOperationException("Sign in first.");
         var startGeneration = generation;
         var startedAt = clock.GetUtcNow();
         var failures = 0;
-        var originals = current.Queries.ToDictionary(query => query.Id);
-        var fullQueryIds = current.Queries.Where(query => full || query.LastRefreshedAt is null ||
-                query.Error is not null || query.LastRefreshedAt > startedAt ||
-                reconcileDue && ((query.LastFullRefreshedAt ?? query.LastRefreshedAt) > startedAt ||
-                    startedAt - (query.LastFullRefreshedAt ?? query.LastRefreshedAt) >= FullRefreshInterval))
+        var observedMetadata = new HashSet<string>();
+        var failedMetadata = new HashSet<string>();
+        var selectedQueries = current.Queries.Where(query => queryId is null || query.Id == queryId).ToArray();
+        if (queryId is not null && queryId != FollowUpsQueryId && selectedQueries.Length == 0)
+            throw new ArgumentException("The query no longer exists.", nameof(queryId));
+        var originals = selectedQueries.ToDictionary(query => query.Id);
+        var fullQueryIds = selectedQueries.Where(query => full || UpdateAnchor(query) is null ||
+                UpdateAnchor(query) > startedAt ||
+                reconcileDue && ((query.LastFullSearchAttemptAt ?? query.LastFullRefreshedAt ?? query.LastRefreshedAt) > startedAt ||
+                    startedAt - (query.LastFullSearchAttemptAt ?? query.LastFullRefreshedAt ?? query.LastRefreshedAt) >= FullRefreshInterval))
             .Select(query => query.Id).ToHashSet();
-        HashSet<string> activityIds = full || reconcileDue
-            ? fullQueryIds.SelectMany(id => originals[id].ItemIds).ToHashSet()
-            : [];
-        var queries = current.Queries.OrderByDescending(query => query.Id == PreferredQueryId).Select(query =>
+        var queries = selectedQueries.OrderByDescending(query => query.Id == PreferredQueryId).Select(query =>
             new SavedQuery
             {
                 Id = query.Id,
                 Expression = fullQueryIds.Contains(query.Id) ? query.Expression :
                     $"({QueryParser.Parse(query.Expression, current.User.Login).Search}) " +
-                    $"updated:>={(query.LastRefreshedAt!.Value - SearchOverlap).UtcDateTime:yyyy-MM-ddTHH:mm:ssZ} sort:updated-desc"
+                    $"updated:>={(UpdateAnchor(query)!.Value - SearchOverlap).UtcDateTime:yyyy-MM-ddTHH:mm:ssZ} sort:updated-desc"
             }).ToArray();
         foreach (var batch in queries.Chunk(GitHubBatching.SearchesPerRequest))
         {
@@ -335,6 +360,7 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
                     var original = originals[query.Id];
                     var target = account.Queries.FirstOrDefault(value => value.Id == query.Id && value.Expression == original.Expression);
                     if (target is null) continue;
+                    if (fullQueryIds.Contains(query.Id)) target.LastFullSearchAttemptAt = startedAt;
                     var response = results.TryGetValue(query.Id, out var fetched) ? fetched :
                         throw new InvalidDataException("The query batch did not return a result for every saved query.");
                     if (response.Error is { } error)
@@ -350,9 +376,6 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
                     {
                         if (account.Items.TryGetValue(incoming.Id, out var existing))
                         {
-                            if (fullQuery && (full || reconcileDue) || incoming.UpdatedAt != existing.UpdatedAt ||
-                                existing.ActivityCheckedAt is null || incoming.UpdatedAt >= existing.ActivityCheckedAt)
-                                activityIds.Add(incoming.Id);
                             incoming.Activities = existing.Activities;
                             incoming.AcknowledgedIds = existing.AcknowledgedIds;
                             incoming.IsMarkedUnread = existing.IsMarkedUnread;
@@ -362,8 +385,17 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
                             incoming.HasBaseline = existing.HasBaseline;
                             incoming.ActivityCheckedAt = existing.ActivityCheckedAt;
                             incoming.ActivityError = existing.ActivityError;
+                            incoming.LoadedActivityMetadata = existing.LoadedActivityMetadata;
+                            incoming.MetadataCheckedAt = existing.MetadataCheckedAt;
+                            incoming.MetadataError = existing.MetadataError;
                         }
-                        else activityIds.Add(incoming.Id);
+                        if (incoming.ActivityMetadata is not null)
+                        {
+                            observedMetadata.Add(incoming.Id);
+                            incoming.MetadataCheckedAt = startedAt;
+                            incoming.MetadataError = null;
+                            PrimeLegacyMetadata(incoming);
+                        }
                         account.Items[incoming.Id] = incoming;
                     }
                     if (fullQuery && !result.IsIncomplete)
@@ -387,7 +419,7 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
                     }
                     else failures++;
                     target.IsIncomplete |= incomplete;
-                    target.Error = incomplete ? "Search was incomplete or exceeded its recent-update limit; previous results and refresh watermark retained." : null;
+                    target.Error = target.IsIncomplete ? "Search coverage is incomplete; cached membership is retained and recent updates are checked separately." : null;
                 }
             }, ct, startGeneration);
             if (PauseForBatchErrors(results.Values.Select(result => result.Error).ToArray(), startGeneration))
@@ -395,14 +427,61 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
         }
         if (generation != startGeneration || Account is null)
             return;
-        var itemIds = Account.Queries.OrderByDescending(query => query.Id == PreferredQueryId)
+        var monitoredIds = Account.Queries.Where(query => queryId is null || query.Id == queryId)
+            .OrderByDescending(query => query.Id == PreferredQueryId)
             .SelectMany(query => query.ItemIds)
-            .Concat(Account.Items.Values.Where(item => item.HasFollowUps).Select(item => item.Id)).Distinct()
-            .Where(id => Account.Items.TryGetValue(id, out var item) &&
-                (full || activityIds.Contains(id) ||
-                 !item.HasBaseline || item.ActivityError is not null || item.ActivityCheckedAt is null ||
-                 item.UpdatedAt >= item.ActivityCheckedAt || item.ActivityCheckedAt > startedAt ||
-                 reconcileDue && startedAt - item.ActivityCheckedAt >= FullRefreshInterval))
+            .Concat(Account.Items.Values.Where(item => (queryId is null || queryId == FollowUpsQueryId) && item.HasFollowUps)
+                .Select(item => item.Id)).Distinct().ToArray();
+        if (client is IActivityMetadataClient metadataClient)
+        {
+            var probes = monitoredIds.Where(Account.Items.ContainsKey).Select(id => Account.Items[id])
+                .Where(item => item.HasBaseline && !observedMetadata.Contains(item.Id) &&
+                    (queryId == FollowUpsQueryId || full || item.MetadataError is not null || reconcileDue &&
+                        ((item.MetadataCheckedAt ?? item.ActivityCheckedAt) is null ||
+                         (item.MetadataCheckedAt ?? item.ActivityCheckedAt) > startedAt ||
+                         startedAt - (item.MetadataCheckedAt ?? item.ActivityCheckedAt) >= FullRefreshInterval))).ToArray();
+            foreach (var batch in probes.Chunk(GitHubBatching.MetadataPerRequest))
+            {
+                ct.ThrowIfCancellationRequested();
+                if (generation != startGeneration) return;
+                Report($"Checking update metadata for {batch.Length} cached items...", startGeneration);
+                IReadOnlyDictionary<string, BatchResult<ActivityMetadata>> results;
+                try { results = await metadataClient.GetActivityMetadataBatchAsync(batch, ct); }
+                catch (Exception exception) when (BatchErrors.IsRecoverable(exception, ct))
+                { results = batch.ToDictionary(item => item.Id, _ => new BatchResult<ActivityMetadata>(null, exception)); }
+                await MutateAsync(account =>
+                {
+                    foreach (var item in batch)
+                    {
+                        if (!account.Items.TryGetValue(item.Id, out var target)) continue;
+                        var result = results.TryGetValue(item.Id, out var response) ? response :
+                            throw new InvalidDataException("The metadata batch did not return a result for every item.");
+                        if (result.Error is { } error)
+                        {
+                            failures++;
+                            target.MetadataError = error.Message;
+                            failedMetadata.Add(item.Id);
+                            continue;
+                        }
+                        target.ActivityMetadata = result.Value ?? throw new InvalidDataException("The metadata batch returned an empty result.");
+                        target.UpdatedAt = target.ActivityMetadata.UpdatedAt;
+                        target.MetadataCheckedAt = startedAt;
+                        target.MetadataError = null;
+                        observedMetadata.Add(item.Id);
+                        PrimeLegacyMetadata(target);
+                    }
+                }, ct, startGeneration);
+                if (PauseForBatchErrors(results.Values.Select(result => result.Error).ToArray(), startGeneration)) return;
+            }
+        }
+        if (generation != startGeneration || Account is null) return;
+        var itemIds = monitoredIds
+            .Where(id => !failedMetadata.Contains(id) && Account.Items.TryGetValue(id, out var item) &&
+                (!item.HasBaseline || item.ActivityError is not null || item.ActivityCheckedAt is null ||
+                 item.ActivityMetadata is { } metadata && metadata != item.LoadedActivityMetadata ||
+                 item.UpdatedAt > item.ActivityCheckedAt || item.ActivityCheckedAt > startedAt ||
+                 client is not IActivityMetadataClient && (queryId == FollowUpsQueryId || full ||
+                    reconcileDue && startedAt - item.ActivityCheckedAt >= FullRefreshInterval)))
             .OrderByDescending(id => id == PreferredItemId).ToArray();
         var reconciliation = full || reconcileDue && (fullQueryIds.Count > 0 ||
             itemIds.Any(id => startedAt - Account.Items[id].ActivityCheckedAt >= FullRefreshInterval));
@@ -437,15 +516,36 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
                         target.ActivityError = error.Message;
                     }
                     else
+                    {
                         ReadStatePolicy.ApplyActivity(target, response.Value ??
                             throw new InvalidDataException("The activity batch returned an empty result."), clock.GetUtcNow());
+                        target.LoadedActivityMetadata = item.ActivityMetadata;
+                    }
                 }
             }, ct, startGeneration);
             if (PauseForBatchErrors(results.Values.Select(result => result.Error).ToArray(), startGeneration))
                 return;
         }
-        Report(failures == 0 ? $"Checked at {clock.GetLocalNow():t}. Refresh/F5 checks recent changes; full reconciliation runs every 30 minutes." :
+        Report(failures == 0 ? $"Checked at {clock.GetLocalNow():t}. Refresh/F5 checks the active view; full reconciliation runs every 30 minutes." :
             $"Refresh finished with {failures} error(s). Some cached results are stale.", startGeneration);
+    }
+
+    private static DateTimeOffset? UpdateAnchor(SavedQuery query) =>
+        query.LastRefreshedAt ?? (query.IsIncomplete ? query.LastFullSearchAttemptAt : null);
+
+    private static void PrimeLegacyMetadata(TrackedItem item)
+    {
+        if (!item.HasBaseline || item.LoadedActivityMetadata is not null ||
+            item.ActivityMetadata is not { } metadata || item.ActivityCheckedAt is not { } checkedAt ||
+            metadata.UpdatedAt > checkedAt || metadata.LatestReviewUpdatedAt > checkedAt) return;
+        var comments = item.Activities.Count(activity => activity.Kind == ActivityKind.Comment);
+        var reviews = item.Activities.Where(activity => activity.Kind == ActivityKind.Review).ToArray();
+        var total = comments + item.Activities.Count(activity => activity.Kind == ActivityKind.ReviewComment) +
+            reviews.Count(activity => !string.IsNullOrWhiteSpace(activity.Body[(activity.Body.IndexOf(':') + 1)..]));
+        if (comments == metadata.CommentCount && reviews.Length == metadata.ReviewCount &&
+            total == metadata.TotalCommentCount &&
+            (metadata.LatestReviewId is null || reviews.Any(review => review.Id == metadata.LatestReviewId)))
+            item.LoadedActivityMetadata = metadata;
     }
 
     private bool PauseForBatchErrors(IReadOnlyList<Exception?> errors, int expectedGeneration)

@@ -24,12 +24,17 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? _device;
     private CancellationTokenSource? _summaryCancellation;
     private string _summarySnapshot = "[]";
+    private string? _summaryItemId;
+    private bool _isEntireSummary;
+    private UnreadSummarySource? _unreadSummarySource;
+    private HashSet<string> _summaryDiscussionIds = [];
     private OAuthToken? _token;
     private Uri? _verificationUri;
     private bool _isDisposed;
     private bool _isInitialized;
     private AccountSnapshot? _lastProjectedAccount;
     private int _isProjectionQueued;
+    private int _activeRefreshes;
     private readonly bool _isDemo = false;
     private readonly WorkspaceRows _rows = new();
     private readonly DiscussionPreview _preview = new();
@@ -87,15 +92,16 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     [NotifyCanExecuteChangedFor(nameof(MarkReadCommand), nameof(MarkUnreadCommand), nameof(MarkPreviewReadCommand), nameof(MarkPreviewUnreadCommand), nameof(FlagSelectionCommand), nameof(OpenBrowserCommand), nameof(ToggleItemFollowUpCommand), nameof(ClearFollowUpsCommand))]
     [NotifyPropertyChangedFor(nameof(HasSelectedItem))]
     public partial ItemRow? SelectedItem { get; set; }
-    [ObservableProperty] public partial string QueryStatus { get; set; } = "Select a saved query.";
     [ObservableProperty] public partial string EmptyMessage { get; set; } = "Sign in to load your saved queries.";
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SummarizeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SummarizeCommand), nameof(SummarizeUnreadCommand))]
     public partial bool IsLocalAiReady { get; set; }
     [ObservableProperty] public partial string LocalAiDescription { get; set; } = "Checking the installed local Windows AI model.";
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SummarizeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SummarizeCommand), nameof(SummarizeUnreadCommand))]
     public partial bool IsSummarizing { get; set; }
+    [ObservableProperty] public partial bool IsSummaryOpen { get; set; }
+    [ObservableProperty] public partial string SummaryHeading { get; set; } = "Discussion summary";
     [ObservableProperty] public partial string Summary { get; set; } = "";
     [ObservableProperty] public partial string SummaryStatus { get; set; } = "";
     [ObservableProperty] public partial bool SummaryFailed { get; set; }
@@ -303,8 +309,8 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     private bool CanMarkRead() => IsSignedIn && SelectedItems.Count > 0 && SelectedItems.All(row => row.Item.HasBaseline);
     private bool CanOpenBrowser() => IsSignedIn && SelectedItem is not null;
     private bool CanSummarize() => IsSignedIn && IsLocalAiReady && !IsSummarizing &&
-        SelectedItems.Count > 0 && SelectedItems.All(row => row.Item.HasBaseline) &&
-        SelectedItems.Any(row => row.UnreadActivities.Count > 0);
+        SelectedItem is { Item.HasBaseline: true };
+    private bool CanSummarizeUnread() => CanSummarize() && SelectedItem is { UnreadActivities.Count: > 0 };
 
     private void CheckLocalAi()
     {
@@ -321,9 +327,9 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         UpdateSelectionState();
     }
 
-    private UnreadSummarySource[] SummarySources() => SelectedItems.Where(row => row.UnreadActivities.Count > 0)
-        .Select(row => new UnreadSummarySource($"{row.RepositoryNumber}: {row.Title}", row.Item.Url,
-            row.UnreadActivities.Select(activity => activity.Activity).ToArray())).ToArray();
+    private UnreadSummarySource[] SummarySources(bool entireDiscussion) =>
+        (entireDiscussion ? SelectedItem?.CreateEntireSummarySource() : SelectedItem?.CreateUnreadSummarySource()) is { } source
+        ? [source] : [];
 
     private void UpdateSelectionState()
     {
@@ -340,60 +346,126 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         ToggleItemFollowUpCommand.NotifyCanExecuteChanged();
         ClearFollowUpsCommand.NotifyCanExecuteChanged();
         SummarizeCommand.NotifyCanExecuteChanged();
-        var snapshot = UnreadSummary.Snapshot(SummarySources());
-        if (snapshot == _summarySnapshot) return;
-        _summarySnapshot = snapshot;
-        _summaryCancellation?.Cancel();
-        Summary = "";
-        SummaryFailed = false;
-        SummaryStatus = IsSummarizing ? "Selection or unread activity changed. Summarization cancelled; summarize again." : "";
+        SummarizeUnreadCommand.NotifyCanExecuteChanged();
+        UpdateSummaryState();
     }
 
-    [RelayCommand(CanExecute = nameof(CanSummarize))]
-    private async Task SummarizeAsync()
+    private void UpdateSummaryState()
     {
-        var sources = SummarySources();
-        if (!CanSummarize()) return;
+        if (!IsSummaryOpen) return;
+        if (_summaryItemId != SelectedItem?.Id)
+        {
+            CloseSummary();
+            return;
+        }
+        if (_isEntireSummary)
+        {
+            var snapshot = UnreadSummary.Snapshot(SummarySources(entireDiscussion: true));
+            if (snapshot == _summarySnapshot) return;
+            _summarySnapshot = snapshot;
+        }
+        else
+        {
+            if (_unreadSummarySource is null ||
+                SelectedItem?.IsUnreadSummaryCurrent(_unreadSummarySource, _summaryDiscussionIds) == true)
+                return;
+            _unreadSummarySource = null;
+        }
+        _summaryCancellation?.Cancel();
+        _summaryCancellation = null;
+        IsSummarizing = false;
+        Summary = "";
+        SummaryFailed = false;
+        SummaryStatus = _isEntireSummary
+            ? "Discussion changed. Summarize again to update."
+            : "Discussion changed. Summarize unread again to update.";
+    }
+
+    [RelayCommand(CanExecute = nameof(CanSummarize), AllowConcurrentExecutions = true)]
+    private Task SummarizeAsync() => GenerateSummaryAsync(entireDiscussion: true);
+
+    [RelayCommand(CanExecute = nameof(CanSummarizeUnread), AllowConcurrentExecutions = true)]
+    private Task SummarizeUnreadAsync() => GenerateSummaryAsync(entireDiscussion: false);
+
+    private async Task GenerateSummaryAsync(bool entireDiscussion)
+    {
+        if (!(entireDiscussion ? CanSummarize() : CanSummarizeUnread())) return;
+        var sources = SummarySources(entireDiscussion);
+        _summaryCancellation?.Cancel();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_session.Token);
         _summaryCancellation = cancellation;
+        _summarySnapshot = UnreadSummary.Snapshot(sources);
+        _summaryItemId = SelectedItem?.Id;
+        _isEntireSummary = entireDiscussion;
+        _unreadSummarySource = entireDiscussion ? null : sources.Single();
+        _summaryDiscussionIds = SelectedItem?.DiscussionActivities.Select(row => row.Id).ToHashSet() ?? [];
         var ct = cancellation.Token;
+        bool IsCurrent() => !_isDisposed && !ct.IsCancellationRequested &&
+            ReferenceEquals(_summaryCancellation, cancellation) && IsSummaryOpen;
         IsSummarizing = true;
         SummaryFailed = false;
         Summary = "";
-        SummaryStatus = "Opening the installed local Windows AI model…";
+        SummaryHeading = entireDiscussion ? "Discussion summary" : "Unread summary";
+        SummaryStatus = "Preparing summary…";
+        IsSummaryOpen = true;
         Error = "";
         var progress = new Progress<string>(message =>
         {
-            if (!ct.IsCancellationRequested && !_isDisposed) SummaryStatus = message;
+            if (IsCurrent() && IsSummarizing)
+                SummaryStatus = message;
+        });
+        var content = new Progress<string>(text =>
+        {
+            if (IsCurrent() && IsSummarizing) Summary = text;
         });
         try
         {
-            var summary = await LocalAiSummarizer.SummarizeAsync(sources, progress, ct);
+            var summary = await LocalAiSummarizer.SummarizeAsync(sources, progress, content, ct);
             ct.ThrowIfCancellationRequested();
+            if (!IsCurrent()) return;
             Summary = summary;
-            SummaryStatus = $"AI-generated locally from {sources.Sum(source => source.Activities.Count)} unread comments/reviews on {sources.Length} item(s). " +
-                "Long discussions are summarized in parts without skipping content. Summaries can be inaccurate; your unread comments are unchanged.";
+            SummaryStatus = "";
         }
         catch (Exception) when (ct.IsCancellationRequested)
         {
-            if (!_isDisposed && IsSignedIn && !SummaryStatus.Contains("changed", StringComparison.Ordinal))
+            if (!_isDisposed && ReferenceEquals(_summaryCancellation, cancellation))
+            {
+                Summary = "";
                 SummaryStatus = "Summarization cancelled.";
+            }
         }
         catch (Exception ex)
         {
+            if (!IsCurrent()) return;
+            Summary = "";
             SummaryFailed = true;
             var reason = Services.LocalAiErrors.Describe(ex);
-            SummaryStatus = $"{char.ToUpperInvariant(reason[0])}{reason[1..]} Your unread comments are unchanged.";
+            SummaryStatus = $"{char.ToUpperInvariant(reason[0])}{reason[1..]}";
         }
         finally
         {
-            if (ReferenceEquals(_summaryCancellation, cancellation)) _summaryCancellation = null;
-            IsSummarizing = false;
+            if (ReferenceEquals(_summaryCancellation, cancellation))
+            {
+                _summaryCancellation = null;
+                IsSummarizing = false;
+            }
         }
     }
 
     [RelayCommand]
-    private void CancelSummary() => _summaryCancellation?.Cancel();
+    private void CloseSummary()
+    {
+        _summaryCancellation?.Cancel();
+        _summaryCancellation = null;
+        IsSummarizing = false;
+        IsSummaryOpen = false;
+        Summary = "";
+        SummaryStatus = "";
+        SummaryFailed = false;
+        _summaryItemId = null;
+        _unreadSummarySource = null;
+        _summaryDiscussionIds.Clear();
+    }
 
     [RelayCommand]
     private async Task OpenVerificationAsync() => await RunAsync(async () =>
@@ -438,7 +510,9 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private Task RefreshAsync() => RefreshWorkspaceAsync(_workspace.CheckForUpdatesAsync);
+    private Task RefreshAsync() => SelectedQuery is { } query
+        ? RefreshWorkspaceAsync(ct => _workspace.CheckForUpdatesAsync(query.Id, ct))
+        : Task.CompletedTask;
 
     private Task PollAsync() => RefreshWorkspaceAsync(_workspace.PollAsync);
 
@@ -451,6 +525,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         await RunAsync(async () =>
         {
             CheckLocalAi();
+            _activeRefreshes++;
             IsBusy = true;
             Status = "Refresh queued — cached content remains available.";
             try
@@ -459,7 +534,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
                 Status = _workspace.Progress;
                 UpdateProjection();
             }
-            finally { IsBusy = false; }
+            finally { IsBusy = --_activeRefreshes > 0; }
         });
     }
 
@@ -470,13 +545,14 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     private Task MarkUnreadAsync() => SetReadAsync(SelectedItems.ToArray(), read: false);
 
     // Details toolbar commands act only on the previewed item, never the whole multi-selection.
-    [RelayCommand(CanExecute = nameof(CanMarkPreview))]
+    [RelayCommand(CanExecute = nameof(CanMarkPreviewRead))]
     private Task MarkPreviewReadAsync() => SelectedItem is { } row ? SetReadAsync([row], read: true) : Task.CompletedTask;
 
-    [RelayCommand(CanExecute = nameof(CanMarkPreview))]
+    [RelayCommand(CanExecute = nameof(CanMarkPreviewUnread))]
     private Task MarkPreviewUnreadAsync() => SelectedItem is { } row ? SetReadAsync([row], read: false) : Task.CompletedTask;
 
-    private bool CanMarkPreview() => IsSignedIn && SelectedItem is { Item.HasBaseline: true };
+    private bool CanMarkPreviewRead() => IsSignedIn && SelectedItem is { CanMarkRead: true };
+    private bool CanMarkPreviewUnread() => IsSignedIn && SelectedItem is { CanMarkUnread: true };
 
     public string MarkSelectionReadLabel => SelectedItems.Count > 1 ? $"Mark {SelectedItems.Count} items read" : "Mark read";
     public string MarkSelectionUnreadLabel => SelectedItems.Count > 1 ? $"Mark {SelectedItems.Count} items unread" : "Mark unread";
@@ -630,6 +706,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     {
         _workspace.PreferredItemId = value?.Id;
         _preview.Update(value);
+        UpdateSummaryState();
     }
     partial void OnItemFilterChanged(string value) => UpdateItems();
     private void UpdateItems()
@@ -651,21 +728,11 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         _preview.Update(SelectedItem);
         UpdateSelectionState();
         if (SelectedQuery is not { } row || account is null) return;
-        var query = row.Query;
         if (!row.IsSavedQuery)
         {
-            QueryStatus = $"{Items.Count} items with follow-ups · {row.UnreadCount} unread · {row.PendingCount} pending\n" +
-                "Local item and comment flags, including items outside saved queries. Reading does not clear flags.";
             EmptyMessage = Items.Count == 0 ? "No follow-ups. Flag an item or a comment to find it here." : "";
             return;
         }
-        var incremental = query.LastFullRefreshedAt is { } fullTime && query.LastRefreshedAt > fullTime;
-        QueryStatus = $"{Items.Count} loaded / {query.TotalCount} matching{(incremental ? " at last full search" : "")} · {row.UnreadCount} unread · {row.PendingCount} pending\n" +
-            (query.LastRefreshedAt is { } time ? $"Last check {time.ToLocalTime():g}" : "Not refreshed yet") +
-            (incremental ? $" · Full membership checked {query.LastFullRefreshedAt!.Value.ToLocalTime():g}" : "") +
-            (query.TotalCount > 1000 || query.IsIncomplete && query.ItemIds.Count >= 1000 ? " · Limited coverage: only the first 1,000 GitHub search results can be loaded." :
-                query.IsIncomplete ? " · Partial search coverage; previous membership retained." : "") +
-            (query.Error is { } error ? $" · Stale: {error}" : "");
         EmptyMessage = Items.Count == 0 ? FilteredEmpty ?? "No cached results. Refresh to search GitHub; failed searches keep the previous saved results." : "";
     }
 

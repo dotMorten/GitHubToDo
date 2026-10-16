@@ -26,6 +26,27 @@ public sealed class WorkspaceRowsTests
         JsonSerializer.Deserialize<AccountSnapshot>(JsonSerializer.Serialize(account))!;
 
     [TestMethod]
+    public void SavedQueryExpressionBindingUpdatesWhenTheQueryIsEdited()
+    {
+        var account = PendingAccount();
+        var rows = new WorkspaceRows();
+        rows.UpdateQueries(account);
+        var row = rows.Queries[0];
+        Assert.AreEqual("state:open archived:false involves:@me", row.Query.Expression);
+        var notifications = new List<string?>();
+        row.PropertyChanged += (_, args) => notifications.Add(args.PropertyName);
+
+        account = Snapshot(account);
+        account.Queries[0].Expression = "is:pr review-requested:@me state:open archived:false";
+        rows.UpdateQueries(account);
+
+        Assert.AreSame(row, rows.Queries[0]);
+        Assert.AreEqual(account.Queries[0].Expression, row.Query.Expression);
+        Assert.Contains(nameof(QueryRow.Query), notifications);
+        Assert.AreEqual("", rows.Queries.Single(query => !query.IsSavedQuery).Query.Expression);
+    }
+
+    [TestMethod]
     public void PendingCountdownUpdatesRowsWithoutResettingCollectionsOrReplacingSelection()
     {
         var account = PendingAccount();
@@ -546,6 +567,332 @@ public sealed class WorkspaceRowsTests
         preview.Update(null);
         preview.Update(row);
         CollectionAssert.AreEqual(new[] { "late", "original" }, preview.Activities.Select(activity => activity.Id).ToArray());
+    }
+
+    [TestMethod]
+    public void ThreadSummaryIncludesOnlyThatThreadsUnreadCommentsAndReviews()
+    {
+        var account = PendingAccount(2);
+        var time = DateTimeOffset.UtcNow;
+        var item = account.Items["item:0"];
+        var comments = new Activity[]
+        {
+            new("first", ActivityKind.Comment, "other", "other", time, "First comment", ""),
+            new("review", ActivityKind.Review, "other", "other", time.AddMinutes(1), "Review", "")
+        };
+        ReadStatePolicy.ApplyActivity(item, comments, time.AddMinutes(2));
+        ReadStatePolicy.ApplyActivity(account.Items["item:1"],
+            [new("unrelated", ActivityKind.Comment, "other", "other", time, "Another thread", "")], time);
+        var row = new ItemRow(item, account);
+        row.IsSelected = true;
+        var other = new ItemRow(account.Items["item:1"], account) { IsSelected = true };
+
+        var allUnread = row.CreateUnreadSummarySource()!;
+        Assert.IsTrue(allUnread.AllCommentsUnread);
+        Assert.AreEqual($"{row.RepositoryNumber}: {row.Title}", allUnread.Item);
+        CollectionAssert.AreEqual(comments, allUnread.Activities.ToArray(),
+            "An entirely unread discussion must be included in full.");
+        Assert.AreEqual("unrelated", other.CreateUnreadSummarySource()!.Activities.Single().Id);
+
+        item.AcknowledgedIds.Add("first");
+        row.Update(item, account);
+        var partial = row.CreateUnreadSummarySource()!;
+        Assert.IsFalse(partial.AllCommentsUnread);
+        Assert.AreEqual("review", partial.Activities.Single().Id);
+        Assert.HasCount(1, item.AcknowledgedIds, "Creating a summary must not acknowledge unread comments.");
+        item.AcknowledgedIds.Add("review");
+        row.Update(item, account);
+        Assert.IsNull(row.CreateUnreadSummarySource(), "A fully read thread has nothing unread to summarize.");
+    }
+
+    [TestMethod]
+    public void ThreadSummaryIsUnavailableBeforeDiscussionLoads()
+    {
+        var account = PendingAccount(1);
+        var row = new ItemRow(account.Items["item:0"], account);
+        Assert.IsNull(row.CreateUnreadSummarySource());
+        Assert.IsNull(row.CreateEntireSummarySource());
+    }
+
+    [TestMethod]
+    public void EntireSummaryIncludesDescriptionAndReadDiscussionButNeverOtherSelectedThreads()
+    {
+        var account = PendingAccount(2);
+        var item = account.Items["item:0"];
+        var time = DateTimeOffset.UtcNow;
+        item.Body = "Original issue description";
+        ReadStatePolicy.ApplyActivity(item,
+        [
+            new("seen", ActivityKind.Comment, "other", "other", time, "Read comment", ""),
+            new("review", ActivityKind.Review, "other", "other", time.AddMinutes(1), "Review", ""),
+            new("bot", ActivityKind.Comment, "bot", "bot", time.AddMinutes(2), "Ignored", "")
+        ], time);
+        item.AcknowledgedIds.UnionWith(["seen", "review"]);
+        account.IgnoredAccounts.Add(new("bot", "bot"));
+        ReadStatePolicy.ApplyActivity(account.Items["item:1"],
+            [new("unrelated", ActivityKind.Comment, "other", "other", time, "Not previewed", "")], time);
+        var rows = new WorkspaceRows();
+        rows.UpdateItems(account.Queries[0], account);
+        var row = rows.Items.Single(row => row.Id == item.Id);
+        rows.UpdateSelection(rows.Items);
+        Assert.IsNull(row.CreateUnreadSummarySource());
+        var source = row.CreateEntireSummarySource()!;
+        Assert.IsTrue(source.EntireDiscussion);
+        CollectionAssert.AreEqual(new[] { "Original issue description", "Read comment", "Review" },
+            source.Activities.Select(activity => activity.Body).ToArray());
+        Assert.AreEqual(ActivityKind.InitialItem, source.Activities[0].Kind);
+        var stable = UnreadSummary.Snapshot([source]);
+        rows.UpdateSelection([row]);
+        Assert.AreEqual(stable, UnreadSummary.Snapshot([row.CreateEntireSummarySource()!]));
+        CollectionAssert.AreEquivalent(new[] { "seen", "review" }, item.AcknowledgedIds.ToArray());
+        Assert.IsFalse(item.IsMarkedUnread);
+    }
+
+    [TestMethod]
+    public void SummarySnapshotsTrackOnlyTheirScopeAndDoNotMutateReadState()
+    {
+        var account = PendingAccount(1);
+        var item = account.Items.Values.Single();
+        var time = DateTimeOffset.UtcNow;
+        ReadStatePolicy.ApplyActivity(item,
+        [
+            new("seen", ActivityKind.Comment, "other", "other", time, "Seen", ""),
+            new("new", ActivityKind.Comment, "other", "other", time.AddMinutes(1), "Unread", "")
+        ], time);
+        item.AcknowledgedIds.Add("seen");
+        var row = new ItemRow(item, account);
+        string Unread() => UnreadSummary.Snapshot([row.CreateUnreadSummarySource()!]);
+        string Entire() => UnreadSummary.Snapshot([row.CreateEntireSummarySource()!]);
+        var unread = Unread();
+        var entire = Entire();
+        item.IsFlagged = true;
+        item.FlaggedActivityIds.Add("new");
+        row.Update(item, account);
+        Assert.AreEqual(unread, Unread());
+        Assert.AreEqual(entire, Entire(), "Follow-up flags are not discussion content.");
+        item.Body = "Updated description";
+        item.Activities[0] = item.Activities[0] with { Body = "Edited read history" };
+        row.Update(item, account);
+        Assert.AreEqual(unread, Unread(), "Read history and description changes do not invalidate unread-only summaries.");
+        Assert.AreNotEqual(entire, Entire());
+        entire = Entire();
+        item.Activities[1] = item.Activities[1] with { Body = "Edited unread comment" };
+        row.Update(item, account);
+        Assert.AreNotEqual(unread, Unread());
+        Assert.AreNotEqual(entire, Entire());
+        entire = Entire();
+        item.AcknowledgedIds.Add("new");
+        row.Update(item, account);
+        Assert.IsNull(row.CreateUnreadSummarySource());
+        Assert.AreEqual(entire, Entire(), "Read-state-only changes must not invalidate an entire-discussion summary.");
+        CollectionAssert.AreEquivalent(new[] { "seen", "new" }, item.AcknowledgedIds.ToArray());
+    }
+
+    [TestMethod]
+    public void EntireSummaryCanSummarizeHydratedDescriptionWithoutComments()
+    {
+        var account = PendingAccount(1);
+        var item = account.Items.Values.Single();
+        item.Body = "Issue with no replies yet";
+        ReadStatePolicy.ApplyActivity(item, [], DateTimeOffset.UtcNow);
+        var row = new ItemRow(item, account);
+        Assert.IsNull(row.CreateUnreadSummarySource());
+        var source = row.CreateEntireSummarySource()!;
+        Assert.AreEqual("Issue with no replies yet", source.Activities.Single().Body);
+        Assert.IsTrue(source.EntireDiscussion);
+    }
+
+    [TestMethod]
+    public void CapturedUnreadSummarySurvivesAcknowledgementAndRowRebuildButNotChangedInput()
+    {
+        var account = PendingAccount(1);
+        var item = account.Items.Values.Single();
+        var time = DateTimeOffset.UtcNow;
+        ReadStatePolicy.ApplyActivity(item,
+        [
+            new("history", ActivityKind.Comment, "other", "other", time, "Already read", ""),
+            new("unread", ActivityKind.Comment, "other", "other", time.AddMinutes(1), "Captured unread", "")
+        ], time);
+        item.AcknowledgedIds.Add("history");
+        var row = new ItemRow(item, account);
+        var source = row.CreateUnreadSummarySource()!;
+        var knownIds = row.DiscussionActivities.Select(activity => activity.Id).ToHashSet();
+        item.AcknowledgedIds.Add("unread");
+        row = new ItemRow(item, account);
+        Assert.IsNull(row.CreateUnreadSummarySource());
+        Assert.IsTrue(row.IsUnreadSummaryCurrent(source, knownIds), "Read acknowledgement must retain the captured excerpt.");
+        item.Activities[0] = item.Activities[0] with { Body = "Edited unrelated read history" };
+        row.Update(item, account);
+        Assert.IsTrue(row.IsUnreadSummaryCurrent(source, knownIds));
+        item.Activities[1] = item.Activities[1] with { Body = "Edited captured comment" };
+        row.Update(item, account);
+        Assert.IsFalse(row.IsUnreadSummaryCurrent(source, knownIds));
+        item.Activities[1] = source.Activities.Single();
+        row.Update(item, account);
+        Assert.IsTrue(row.IsUnreadSummaryCurrent(source, knownIds));
+        item.Activities.Add(new("new-own-reply", ActivityKind.Comment, account.User.Id, account.User.Login,
+            time.AddMinutes(2), "New discussion content, even when automatically read", ""));
+        row.Update(item, account);
+        Assert.IsFalse(row.IsUnreadSummaryCurrent(source, knownIds), "New comments invalidate even if the item remains read.");
+        item.Activities.RemoveAll(activity => activity.Id is "new-own-reply" or "unread");
+        row.Update(item, account);
+        Assert.IsFalse(row.IsUnreadSummaryCurrent(source, knownIds), "Deleted captured content invalidates.");
+    }
+
+    [TestMethod]
+    public async Task CapturedUnreadStreamCanFinishAfterItsCommentsAreMarkedRead()
+    {
+        var account = PendingAccount(1);
+        var item = account.Items.Values.Single();
+        var time = DateTimeOffset.UtcNow;
+        ReadStatePolicy.ApplyActivity(item,
+            [new("unread", ActivityKind.Comment, "other", "other", time, "Captured comment", "")], time);
+        var row = new ItemRow(item, account);
+        var source = row.CreateUnreadSummarySource()!;
+        var knownIds = row.DiscussionActivities.Select(activity => activity.Id).ToHashSet();
+        var completed = await UnreadSummary.GenerateAsync([source], _ => true, async (_, fragments, ct) =>
+        {
+            fragments.Report("Before acknowledgement");
+            item.AcknowledgedIds.Add("unread");
+            row = new ItemRow(item, account);
+            Assert.IsNull(row.CreateUnreadSummarySource());
+            Assert.IsTrue(row.IsUnreadSummaryCurrent(source, knownIds),
+                "The view model must not cancel the generation when only acknowledgement changed.");
+            await Task.Yield();
+            ct.ThrowIfCancellationRequested();
+            fragments.Report(" After acknowledgement");
+            return "Complete summary of the captured unread comment";
+        }, null, null, default);
+        Assert.Contains("Complete summary", completed);
+        Assert.IsTrue(row.IsUnreadSummaryCurrent(source, knownIds));
+        CollectionAssert.AreEquivalent(new[] { "unread" }, item.AcknowledgedIds.ToArray());
+    }
+
+    [TestMethod]
+    public void PreviewReadActionsAreMutuallyExclusiveAndUnavailableWhilePending()
+    {
+        var account = PendingAccount(1);
+        var item = account.Items.Values.Single();
+        var row = new ItemRow(item, account);
+        Assert.IsFalse(row.CanMarkRead);
+        Assert.IsFalse(row.CanMarkUnread);
+        var changes = new List<string?>();
+        row.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
+        var time = DateTimeOffset.UtcNow;
+        ReadStatePolicy.ApplyActivity(item,
+            [new("comment", ActivityKind.Comment, "other", "other", time, "Comment", "")], time);
+        row.Update(item, account);
+        Assert.IsTrue(row.CanMarkRead);
+        Assert.IsFalse(row.CanMarkUnread);
+        Assert.Contains(nameof(ItemRow.CanMarkRead), changes);
+        changes.Clear();
+        item.AcknowledgedIds.Add("comment");
+        row.Update(item, account);
+        Assert.IsFalse(row.CanMarkRead);
+        Assert.IsTrue(row.CanMarkUnread);
+        Assert.Contains(nameof(ItemRow.CanMarkRead), changes);
+        Assert.Contains(nameof(ItemRow.CanMarkUnread), changes);
+        item.IsMarkedUnread = true;
+        row.Update(item, account);
+        Assert.IsTrue(row.CanMarkRead, "Manually unread items offer mark read even without unread comments.");
+        Assert.IsFalse(row.CanMarkUnread);
+    }
+
+    [TestMethod]
+    public void MetadataErrorsUpdatePreviewFreshnessWithoutDiscardingDiscussionOrSummarySources()
+    {
+        var account = PendingAccount(1);
+        var item = account.Items.Values.Single();
+        var time = DateTimeOffset.UtcNow;
+        ReadStatePolicy.ApplyActivity(item,
+            [new("comment", ActivityKind.Comment, "other", "other", time, "Cached discussion", "")], time);
+        var row = new ItemRow(item, account);
+        var summary = UnreadSummary.Snapshot([row.CreateEntireSummarySource()!]);
+        var changes = new List<string?>();
+        row.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
+        item.MetadataError = "Metadata probe failed";
+        row.Update(item, account);
+        Assert.AreEqual("Stale — Metadata probe failed", row.Freshness);
+        Assert.Contains(nameof(ItemRow.Freshness), changes);
+        Assert.AreEqual(summary, UnreadSummary.Snapshot([row.CreateEntireSummarySource()!]));
+        item.ActivityError = "Discussion unavailable";
+        row.Update(item, account);
+        Assert.AreEqual("Stale — Discussion unavailable", row.Freshness);
+        item.ActivityError = null;
+        item.MetadataError = null;
+        changes.Clear();
+        row.Update(item, account);
+        Assert.Contains("Activity checked", row.Freshness);
+        Assert.Contains(nameof(ItemRow.Freshness), changes);
+    }
+
+    [TestMethod]
+    public void FollowUpsSidebarCountsItemsRegardlessOfReadOrPendingState()
+    {
+        var account = PendingAccount(3);
+        var read = account.Items["item:0"];
+        ReadStatePolicy.ApplyActivity(read,
+            [new("seen", ActivityKind.Comment, "other", "other", DateTimeOffset.UtcNow, "read", "")],
+            DateTimeOffset.UtcNow);
+        read.AcknowledgedIds.Add("seen");
+        read.IsFlagged = true;
+        read.FlaggedActivityIds.Add("seen");
+        var unread = account.Items["item:1"];
+        ReadStatePolicy.ApplyActivity(unread,
+            [new("new", ActivityKind.Comment, "other", "other", DateTimeOffset.UtcNow, "unread", "")],
+            DateTimeOffset.UtcNow);
+        unread.FlaggedActivityIds.Add("new");
+        account.Items["item:2"].IsFlagged = true;
+        var rows = new WorkspaceRows();
+        rows.UpdateQueries(account);
+        var followUps = rows.Queries.Single(query => !query.IsSavedQuery);
+        Assert.AreEqual("3", followUps.SidebarBadge, "Count items, not individual flags or unread comments.");
+        Assert.IsTrue(followUps.IsSidebarBadgeVisible);
+        Assert.AreEqual(1, followUps.UnreadCount);
+        Assert.AreEqual(1, followUps.PendingCount);
+
+        unread.AcknowledgedIds.Add("new");
+        rows.UpdateQueries(account);
+        Assert.AreEqual("3", followUps.SidebarBadge);
+        Assert.IsTrue(followUps.IsSidebarBadgeVisible);
+        Assert.IsFalse(followUps.IsUnread);
+
+        var changes = new List<string?>();
+        followUps.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
+        read.IsFlagged = false;
+        read.FlaggedActivityIds.Clear();
+        rows.UpdateQueries(account);
+        Assert.AreSame(followUps, rows.Queries.Single(query => !query.IsSavedQuery));
+        Assert.AreEqual("2", followUps.SidebarBadge);
+        Assert.Contains(nameof(QueryRow.SidebarBadge), changes);
+
+        unread.FlaggedActivityIds.Clear();
+        account.Items["item:2"].IsFlagged = false;
+        rows.UpdateQueries(account);
+        Assert.AreEqual("0", followUps.SidebarBadge);
+        Assert.IsTrue(followUps.IsSidebarBadgeVisible);
+    }
+
+    [TestMethod]
+    public void SavedQuerySidebarKeepsUnreadAndPendingCounts()
+    {
+        var account = PendingAccount(1);
+        var rows = new WorkspaceRows();
+        rows.UpdateQueries(account);
+        var query = rows.Queries[0];
+        Assert.AreEqual("0 · …", query.SidebarBadge);
+        Assert.IsTrue(query.IsSidebarBadgeVisible);
+        var item = account.Items["item:0"];
+        ReadStatePolicy.ApplyActivity(item,
+            [new("comment", ActivityKind.Comment, "other", "other", DateTimeOffset.UtcNow, "hello", "")],
+            DateTimeOffset.UtcNow);
+        rows.UpdateQueries(account);
+        Assert.AreEqual("1", query.SidebarBadge);
+        Assert.IsTrue(query.IsSidebarBadgeVisible);
+        item.AcknowledgedIds.Add("comment");
+        rows.UpdateQueries(account);
+        Assert.AreEqual("0", query.SidebarBadge);
+        Assert.IsFalse(query.IsSidebarBadgeVisible);
     }
 
     [TestMethod]

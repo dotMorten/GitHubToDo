@@ -12,7 +12,7 @@ internal static class LocalAiErrors
     public static string Describe(Exception ex) => ex switch
     {
         COMException { HResult: RpcFailed or RpcUnavailable } =>
-            "the Windows AI model service stopped responding. Check that the NPU/GPU drivers are current, then try again.",
+            "the Windows AI model service stopped responding. Try again.",
         COMException { HResult: AccessDenied } or UnauthorizedAccessException =>
             "this app is not allowed to use the on-device model (Phi Silica is a Limited Access Feature).",
         _ => FirstLine(ex.Message),

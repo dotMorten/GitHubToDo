@@ -16,20 +16,38 @@ public sealed class QueryBuilderTests
             Assert.IsFalse(string.IsNullOrWhiteSpace(doc.Summary), doc.Name);
             Assert.IsNotEmpty(doc.Examples, doc.Name);
             foreach (var example in doc.Examples)
-                Assert.IsEmpty(QueryValidator.Validate(doc.Name == "sort" ? "is:pr " + example : example), $"{doc.Name}: {example}");
+                Assert.IsEmpty(QueryValidator.Validate(example), $"{doc.Name}: {example}");
             if (doc.Kind == QualifierValueKind.Choice) Assert.IsNotNull(doc.Values, doc.Name);
         }
         var reference = QueryLanguage.Reference();
         StringAssert.Contains(reference, "review-requested:USER");
-        Assert.DoesNotContain("- sort:", reference);
+        Assert.DoesNotContain("sort:", reference);
+    }
+
+    [TestMethod]
+    [DataRow("sort:updated-desc")]
+    [DataRow("sort:created-asc")]
+    [DataRow("SORT:comments-desc")]
+    public void SortIsNotOfferedButExistingQueriesStillValidate(string sort)
+    {
+        Assert.IsNull(QueryLanguage.Find("sort"));
+        Assert.IsEmpty(QueryValidator.Validate($"is:pr {sort}"));
+        var parsed = QueryParser.Parse($"is:pr {sort}", "viewer");
+        Assert.AreEqual("is:pr", parsed.Search);
+        Assert.AreEqual("updated", parsed.Sort);
+        Assert.AreEqual("desc", parsed.Order);
     }
 
     [TestMethod]
     public void StarterQueriesAndUrlsValidate()
     {
         foreach (var query in SavedQuery.Defaults())
+        {
             Assert.IsEmpty(QueryValidator.Validate(query.Expression), query.Expression);
+            Assert.DoesNotContain("sort:", query.Expression);
+        }
         Assert.IsEmpty(QueryValidator.Validate("https://github.com/pulls/reviews"));
+        Assert.DoesNotContain("sort:", QueryParser.ExtractExpression("https://github.com/pulls/reviews"));
         Assert.IsEmpty(QueryValidator.Validate("(repo:dotnet/maui OR repo:dotnet/runtime) -label:\"needs info\" crash in:title comments:5..20 created:>=2026-01-01"));
     }
 

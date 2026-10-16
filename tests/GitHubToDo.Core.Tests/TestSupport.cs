@@ -32,12 +32,26 @@ internal sealed class FakeHandler(Func<HttpRequestMessage, CancellationToken, Ta
     }
 }
 
-internal sealed class FakeClient : IGitHubClient
+internal sealed class FakeClient : IGitHubClient, IActivityMetadataClient
 {
     public GitHubUser User { get; set; } = new("1", "viewer");
     public Func<string, CancellationToken, Task<SearchResult>>? Search { get; set; }
     public Func<TrackedItem, CancellationToken, Task<IReadOnlyList<Activity>>>? Activity { get; set; }
+    public Func<TrackedItem, ActivityMetadata>? Metadata { get; set; }
     public int ActivityCalls { get; private set; }
+    public int MetadataCalls { get; private set; }
+    public Task<IReadOnlyDictionary<string, BatchResult<ActivityMetadata>>> GetActivityMetadataBatchAsync(
+        IReadOnlyList<TrackedItem> items, CancellationToken cancellationToken)
+    {
+        MetadataCalls += items.Count;
+        return Task.FromResult<IReadOnlyDictionary<string, BatchResult<ActivityMetadata>>>(items.ToDictionary(
+            item => item.Id, item => new BatchResult<ActivityMetadata>(Metadata?.Invoke(item) ?? new(item.UpdatedAt,
+                item.Activities.Count(activity => activity.Kind == ActivityKind.Comment),
+                item.Activities.Count(activity => activity.Kind == ActivityKind.Review),
+                item.Activities.Count(activity => activity.Kind is ActivityKind.Comment or ActivityKind.ReviewComment) +
+                item.Activities.Count(activity => activity.Kind == ActivityKind.Review &&
+                    !string.IsNullOrWhiteSpace(activity.Body[(activity.Body.IndexOf(':') + 1)..]))), null)));
+    }
     public Task<GitHubUser> GetUserAsync(CancellationToken cancellationToken) => Task.FromResult(User);
     public Task<GitHubUser> GetUserAsync(string login, CancellationToken cancellationToken) => Task.FromResult(new GitHubUser(login, login));
     public Task<SearchResult> SearchAsync(string expression, string login, CancellationToken cancellationToken) =>

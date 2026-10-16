@@ -23,11 +23,11 @@ GitHubToDo gives you a familiar, email-style workspace: saved searches on the le
 
 ## Your searches. Your inbox.
 
-Start with issues involving you, your pull requests, and reviews requested from you. Then add whatever you need using GitHub's search syntax.
+Start with items involving you, your pull requests, and reviews requested from you. Then add whatever you need using GitHub's search syntax.
 
 | What you want to follow | Example search |
 | --- | --- |
-| Open issues involving you | `is:issue involves:@me state:open archived:false` |
+| Open issues and pull requests involving you | `state:open archived:false involves:@me` |
 | Your open pull requests | `is:pr author:@me state:open` |
 | Pull requests awaiting your review | `is:pr review-requested:@me state:open archived:false` |
 | Bugs in a particular repository | `repo:dotnet/runtime is:issue is:open label:bug` |
@@ -44,9 +44,11 @@ AI can get the intent wrong even when a query is valid. Always review the genera
 
 ## Long thread? Get the catch-up version.
 
-Select one or more items and choose **Summarize** to get an AI-generated catch-up on their unread discussion: decisions, open questions, and requested actions.
+Open an issue or pull request and choose **Summarize unread** to catch up on its unread comments and reviews, or **Summarize** for its original description and entire loaded discussion, including read comments (ignored accounts are excluded). Both summarize the previewed item, not other selected rows. Generated text streams into a right-hand pane alongside the discussion; on narrow windows the pane overlays it. Close the pane with **×** to cancel generation and hide it. Long discussions are summarized in parts without silently skipping content; failed or cancelled drafts are cleared.
 
 **AI processing stays on your device.** There's no cloud AI service or AI subscription to configure. Summarizing doesn't mark anything read, and the original conversation stays available so you can check the details.
+
+An unread summary keeps its captured excerpt when you mark the item read, even if generation is still running. New discussion activity or changes to the captured comments invalidate it; closing the pane or opening another item clears it.
 
 Both AI features are optional and require a compatible Windows device with the local Windows AI model installed and available. GitHubToDo doesn't automatically download a model or fall back to a cloud provider. You can use the inbox and write queries yourself without AI.
 
@@ -66,7 +68,7 @@ When it's time to reply, review code, or make changes, **Open in GitHub** takes 
 
 ### A few things worth knowing
 
-- GitHubToDo monitors **GitHub.com** while the app is open. It checks for updates every two minutes; it isn't a background notification service.
+- GitHubToDo monitors **GitHub.com** while the app is open. It checks for updates every two minutes and reconciles search membership and lightweight activity metadata every 30 minutes, reloading changed discussions rather than full-scanning every thread; it isn't a background notification service.
 - GitHub search can lag behind activity and exposes at most the first 1,000 results per query. Use focused searches for the most useful inbox. Incomplete results and stale data are labelled in the app.
 - Unread activity covers published comments, inline review comments, and submitted reviews, not every kind of GitHub event.
 - The discussion preview focuses on readable text and Markdown. For images, external links, and the full GitHub experience, open the item in your browser.
