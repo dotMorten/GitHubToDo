@@ -60,7 +60,9 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     public event Action? ExplicitReadStateChanging;
     public event Action? UnreadRestored;
 
-    [ObservableProperty] public partial string ClientId { get; set; } = "";
+    [ObservableProperty] public partial string ClientId { get; set; } = Services.BuildInfo.ClientId ?? "";
+    /// <summary>True for official builds with the OAuth client ID baked in; the client ID setting is then hidden.</summary>
+    public bool HasBuiltInClientId { get; } = Services.BuildInfo.ClientId is not null;
     [ObservableProperty] public partial bool IncludePrivate { get; set; }
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(MarkReadCommand), nameof(MarkUnreadCommand), nameof(MarkPreviewReadCommand), nameof(MarkPreviewUnreadCommand), nameof(FlagSelectionCommand), nameof(OpenBrowserCommand), nameof(ToggleItemFollowUpCommand), nameof(ClearFollowUpsCommand))]
@@ -72,7 +74,9 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty] public partial string AccountLabel { get; set; } = "Not signed in";
     [ObservableProperty] public partial string AccountLogin { get; set; } = "";
     [ObservableProperty] public partial string ItemFilter { get; set; } = "";
-    [ObservableProperty] public partial string Status { get; set; } = "Configure your own GitHub OAuth application to get started.";
+    [ObservableProperty] public partial string Status { get; set; } = Services.BuildInfo.ClientId is null
+        ? "Configure your own GitHub OAuth application to get started."
+        : "Sign in with GitHub to get started.";
     [ObservableProperty] public partial string Error { get; set; } = "";
     [ObservableProperty] public partial string IgnoredLogins { get; set; } = "";
     [ObservableProperty] public partial string IgnoredStatus { get; set; } = "";
@@ -180,7 +184,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         await RunAsync(async () =>
         {
             CheckLocalAi();
-            ClientId = await _store.GetSettingAsync("oauth-client-id") ?? "";
+            ClientId = Services.BuildInfo.ClientId ?? await _store.GetSettingAsync("oauth-client-id") ?? "";
             IncludePrivate = await _store.GetSettingAsync("oauth-private") == "true";
 #if DEBUG
             if (_isDemo)
@@ -245,7 +249,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task SaveSettingsAsync() => await RunAsync(async () =>
     {
-        await _store.SetSettingAsync("oauth-client-id", ClientId.Trim());
+        if (!HasBuiltInClientId) await _store.SetSettingAsync("oauth-client-id", ClientId.Trim());
         await _store.SetSettingAsync("oauth-private", IncludePrivate ? "true" : "false");
         Status = "Configuration saved. Scope changes take effect on your next sign-in.";
     });
@@ -267,7 +271,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
             if (string.IsNullOrWhiteSpace(ClientId))
                 throw new ArgumentException("Enter the client ID of your own GitHub OAuth app with device flow enabled. No client secret is required.");
             var clientId = ClientId.Trim();
-            await _store.SetSettingAsync("oauth-client-id", clientId);
+            if (!HasBuiltInClientId) await _store.SetSettingAsync("oauth-client-id", clientId);
             await _store.SetSettingAsync("oauth-private", IncludePrivate ? "true" : "false");
             _device = CancellationTokenSource.CreateLinkedTokenSource(_session.Token);
             var ct = _device.Token;

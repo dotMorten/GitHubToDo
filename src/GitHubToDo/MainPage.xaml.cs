@@ -93,6 +93,10 @@ public sealed partial class MainPage : Page
     public static Windows.UI.Text.FontWeight UnreadWeight(bool unread) =>
         unread ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
     public static bool CanConfigure(bool signedIn, bool deviceFlow) => !signedIn && !deviceFlow;
+    public static string OAuthHeader(bool builtIn) => builtIn ? "GitHub sign-in" : "OAuth app";
+    public static string OAuthDescription(bool builtIn) => builtIn
+        ? "This release signs in through the official GitHub OAuth app. Sign out before changing this configuration."
+        : "Register your own GitHub OAuth app with Device Flow enabled and paste its public client ID. Never enter a client secret. Sign out before changing this configuration.";
     public static bool HasText(string? value) => !string.IsNullOrWhiteSpace(value);
     public static Visibility Visible(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility CollapsedWhen(bool value) => Visible(!value);

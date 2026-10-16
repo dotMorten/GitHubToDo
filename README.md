@@ -88,14 +88,34 @@ If the Phi Silica Limited Access Feature must be unlocked for this package, set 
 
 ## Real GitHub sign-in
 
+Official release builds (see [Releases](#releases)) have the OAuth client ID built in: just choose **Sign in**. Builds you make yourself need your own OAuth app:
+
 1. Register **your own** GitHub OAuth application and enable **Device Flow**.
-2. In Settings, enter its public client ID. No client secret is needed or stored.
+2. In Settings, enter its public client ID. No client secret is needed or stored. (Alternatively, build with the `GITHUBTODO_CLIENT_ID` environment variable or `-p:GitHubClientId=...` to bake it in; the Settings field is then hidden.)
 3. Leave private access off for public-only access. Private repositories require the broad `repo` OAuth scope, although this app performs no repository writes. Your organization may require SSO authorization or application approval.
 4. Choose **Sign in**, open the authorization page, and enter the displayed code. Cancel or retry if the code expires.
 
 Tokens are stored in Windows Credential Locker, never in SQLite or ordinary settings. The client ID and requested private-scope flag are nonsecret local settings. Cached account data is isolated by immutable GitHub user ID; sign-out cancels monitoring and hides the private cache. Offline startup can show only the account associated with the stored credential. Explicit read acknowledgements are committed locally before successful UI feedback.
 
 **Live OAuth and authenticated GitHub behavior have not been validated without a user-owned OAuth client ID and consented safe test repository/account access.** Demo mode is not evidence of real authentication or API correctness.
+
+## Releases
+
+The on-demand **Release** workflow (`.github/workflows/release.yml`; Actions > Release > Run workflow) takes a `major.minor.build` version, runs the core tests, builds x64 and ARM64 MSIX packages with the official client ID baked in, signs them with Azure Artifact (Trusted) Signing, and publishes them to a GitHub release tagged `v<version>`.
+
+It needs these repository settings (Settings > Secrets and variables > Actions):
+
+| Kind | Name | Value |
+|------|------|-------|
+| Variable | `GITHUBTODO_CLIENT_ID` | Official OAuth app client ID (public, Device Flow enabled) |
+| Variable | `MSIX_PUBLISHER` | Signing certificate subject; must exactly match, e.g. `CN=Name, O=Name, L=City, S=State, C=US` |
+| Variable | `MSIX_PUBLISHER_DISPLAY_NAME` | Publisher name shown by the installer (optional) |
+| Variable | `AZURE_SIGNING_ENDPOINT` | Signing account region endpoint, e.g. `https://wus2.codesigning.azure.net/` |
+| Variable | `AZURE_SIGNING_ACCOUNT` | Signing account name |
+| Variable | `AZURE_SIGNING_PROFILE` | Certificate profile name |
+| Secret | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID` | App registration used through OpenID Connect (no client secret). It needs a federated credential for `repo:dotMorten/GitHubToDo:ref:refs/heads/main` and the *Artifact Signing Certificate Profile Signer* role on the certificate profile |
+
+The CI build restores from nuget.org instead of the checked-in mirror `NuGet.Config`. Packages are self-contained (.NET and Windows App SDK), so they install without extra runtimes.
 
 ## Debug-only demo
 

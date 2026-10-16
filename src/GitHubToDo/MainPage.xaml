@@ -699,11 +699,13 @@
                         </toolkit:SettingsCard>
 
                         <TextBlock Text="GitHub connection" Style="{StaticResource SectionHeaderStyle}" />
-                        <toolkit:SettingsExpander Header="OAuth app" IsExpanded="True"
-                                                  Description="Register your own GitHub OAuth app with Device Flow enabled and paste its public client ID. Never enter a client secret. Sign out before changing this configuration.">
+                        <toolkit:SettingsExpander Header="{x:Bind local:MainPage.OAuthHeader(ViewModel.HasBuiltInClientId)}" IsExpanded="True"
+                                                  Description="{x:Bind local:MainPage.OAuthDescription(ViewModel.HasBuiltInClientId)}"
+                                                  AutomationProperties.AutomationId="OAuthSettings">
                             <toolkit:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE8D7;" /></toolkit:SettingsExpander.HeaderIcon>
                             <toolkit:SettingsExpander.Items>
-                                <toolkit:SettingsCard Header="Client ID" Description="Public identifier, not a secret.">
+                                <toolkit:SettingsCard Header="Client ID" Description="Public identifier, not a secret."
+                                                      Visibility="{x:Bind local:MainPage.CollapsedWhen(ViewModel.HasBuiltInClientId)}">
                                     <TextBox MinWidth="300" PlaceholderText="Ov23li…" Text="{x:Bind ViewModel.ClientId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                              IsEnabled="{x:Bind local:MainPage.CanConfigure(ViewModel.IsSignedIn, ViewModel.IsDeviceFlow), Mode=OneWay}"
                                              AutomationProperties.Name="OAuth client ID (not a secret)" AutomationProperties.AutomationId="OAuthClientId" />
@@ -718,6 +720,7 @@
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <Button Content="Save configuration" Command="{x:Bind ViewModel.SaveSettingsCommand}" AutomationProperties.AutomationId="SaveConfiguration" />
                                         <HyperlinkButton Content="Register a GitHub OAuth app" NavigateUri="https://github.com/settings/applications/new"
+                                                         Visibility="{x:Bind local:MainPage.CollapsedWhen(ViewModel.HasBuiltInClientId)}"
                                                          AutomationProperties.AutomationId="OAuthRegistration" />
                                     </StackPanel>
                                 </toolkit:SettingsCard>

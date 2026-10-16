@@ -61,6 +61,17 @@
   </ItemGroup>
 
   <!--
+    Official release builds bake in the GitHub OAuth app client ID (a public identifier, not a secret) from the
+    GITHUBTODO_CLIENT_ID environment variable or -p:GitHubClientId=. Without it, users enter their own in Settings.
+  -->
+  <PropertyGroup>
+    <GitHubClientId Condition="'$(GitHubClientId)' == ''">$(GITHUBTODO_CLIENT_ID)</GitHubClientId>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(GitHubClientId)' != ''">
+    <AssemblyMetadata Include="GitHubClientId" Value="$(GitHubClientId)" />
+  </ItemGroup>
+
+  <!--
     Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
     Explorer "Package and Publish" context menu entry to be enabled for this project even if
     the Windows App SDK Nuget package has not yet been restored.
