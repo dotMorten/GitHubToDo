@@ -113,7 +113,7 @@ It needs these repository settings (Settings > Secrets and variables > Actions):
 | Variable | `AZURE_SIGNING_ENDPOINT` | Signing account region endpoint, e.g. `https://wus2.codesigning.azure.net/` |
 | Variable | `AZURE_SIGNING_ACCOUNT` | Signing account name |
 | Variable | `AZURE_SIGNING_PROFILE` | Certificate profile name |
-| Secret | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID` | App registration used through OpenID Connect (no client secret). It needs a federated credential for `repo:dotMorten/GitHubToDo:ref:refs/heads/main` and the *Artifact Signing Certificate Profile Signer* role on the certificate profile |
+| Secret | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` | App registration used through OpenID Connect (no client secret). It needs a federated credential for `repo:dotMorten/GitHubToDo:ref:refs/heads/main` and the *Artifact Signing Certificate Profile Signer* role on the certificate profile |
 
 The CI build restores from nuget.org instead of the checked-in mirror `NuGet.Config`. Packages are self-contained (.NET and Windows App SDK), so they install without extra runtimes.
 
