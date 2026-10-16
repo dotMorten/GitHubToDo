@@ -146,7 +146,7 @@ public sealed class WorkspaceRowsTests
         query.Name = "Renamed query";
         account.Queries.Add(query);
         rows.UpdateQueries(account);
-        Assert.AreSame(first, rows.Queries[2]);
+        Assert.AreSame(first, rows.Queries[account.Queries.Count - 1]);
         Assert.AreEqual("Renamed query", first.Name);
         Assert.IsTrue(notifications.All(action => action == NotifyCollectionChangedAction.Move));
     }
@@ -916,7 +916,7 @@ public sealed class WorkspaceRowsTests
         Assert.IsTrue(row.DiscussionActivities.Single().IsFlagged);
         Assert.Contains("flagged for follow-up", row.AccessibleName);
         Assert.AreEqual(0, row.UnreadCommentCount);
-        Assert.HasCount(3, account.Queries, "The local view must not be saved as a GitHub search.");
+        Assert.HasCount(SavedQuery.Defaults().Count, account.Queries, "The local view must not be saved as a GitHub search.");
         item.IsFlagged = true;
         rows.UpdateQueries(account);
         Assert.AreSame(followUps, rows.Queries.Single(query => !query.IsSavedQuery));

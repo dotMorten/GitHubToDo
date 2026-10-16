@@ -544,12 +544,13 @@ public sealed class GraphQlGitHubClientTests
     public async Task WorkspaceBatchesSearchesAndHydratesSharedItemsOnlyOnce()
     {
         var client = Client((_, call) => call == 1 ?
-            Response(new { s0 = Search([Item("shared")], 1), s1 = Search([Item("shared")], 1), s2 = Search([Item("shared")], 1) }) :
+            Response(Enumerable.Range(0, SavedQuery.Defaults().Count)
+                .ToDictionary(index => $"s{index}", _ => Search([Item("shared")], 1))) :
             Response(new { n0 = ActivityNode(false, [Comment(1)], []) }));
         var workspace = new WorkspaceService(database.Store, client);
         await workspace.OpenAsync(new("1", "viewer"));
         await workspace.RefreshAsync();
-        Assert.HasCount(2, requests, "Three overlapping queries and their shared activity should take two batched requests.");
+        Assert.HasCount(2, requests, "Overlapping queries and their shared activity should take two batched requests.");
         Assert.HasCount(1, workspace.Account!.Items);
         Assert.IsTrue(workspace.Account.Queries.All(query => query.ItemIds.SequenceEqual(["shared"])));
         await workspace.MarkReadAsync("shared", ["comment:1"]);

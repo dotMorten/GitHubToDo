@@ -25,6 +25,23 @@ public sealed class PersistenceAndWorkspaceTests
     }
 
     [TestMethod]
+    public async Task AssignedItemsSearchIsSeededOnlyForNewAccounts()
+    {
+        using var database = new TestDatabase();
+        var user = new GitHubUser("1", "viewer");
+        var account = await database.Store.LoadAsync(user);
+        var assigned = account.Queries.Single(query => query.Name == "Items assigned to me");
+        Assert.AreEqual("assignee:@me state:open archived:false", assigned.Expression);
+        account.Queries.Remove(assigned);
+        await database.Store.SaveAsync(account);
+
+        var reopened = await database.Store.LoadAsync(user);
+        CollectionAssert.AreEqual(account.Queries.Select(query => query.Id).ToArray(),
+            reopened.Queries.Select(query => query.Id).ToArray());
+        Assert.IsFalse(reopened.Queries.Any(query => query.Name == "Items assigned to me"));
+    }
+
+    [TestMethod]
     public async Task BulkReadCommitsEverySelectedItemOnceAndSurvivesRestart()
     {
         using var database = new TestDatabase();
@@ -160,7 +177,7 @@ public sealed class PersistenceAndWorkspaceTests
         await database.Store.SaveAsync(account);
         Assert.IsEmpty((await database.Store.LoadAsync(account.User)).Queries);
         var other = await database.Store.LoadAsync(new("2", "second"));
-        Assert.HasCount(3, other.Queries);
+        Assert.HasCount(SavedQuery.Defaults().Count, other.Queries);
         Assert.IsEmpty(other.Items);
         Assert.IsEmpty(other.IgnoredAccounts);
     }
@@ -245,7 +262,7 @@ public sealed class PersistenceAndWorkspaceTests
         Assert.AreSame(first, workspace.RefreshAsync(cancellation.Token));
         cancellation.Cancel();
         await Assert.ThrowsAsync<OperationCanceledException>(async () => await first);
-        Assert.HasCount(3, workspace.Account!.Queries);
+        Assert.HasCount(SavedQuery.Defaults().Count, workspace.Account!.Queries);
     }
 
     [TestMethod]

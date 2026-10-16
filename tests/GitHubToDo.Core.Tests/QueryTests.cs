@@ -16,6 +16,15 @@ public sealed class QueryTests
     }
 
     [TestMethod]
+    public void NewAccountsStartWithItemsAssignedToMeWithoutATypeFilter()
+    {
+        var account = new AccountSnapshot();
+        var query = account.Queries.Single(query => query.Name == "Items assigned to me");
+        Assert.AreEqual("assignee:@me state:open archived:false", query.Expression);
+        Assert.AreEqual("assignee:viewer state:open archived:false", QueryParser.Parse(query.Expression, "viewer").Search);
+    }
+
+    [TestMethod]
     public void ReviewQueryResolvesViewerAndSort()
     {
         var query = QueryParser.Parse("is:pr review-requested:@me state:open archived:false sort:updated-desc", "octocat");

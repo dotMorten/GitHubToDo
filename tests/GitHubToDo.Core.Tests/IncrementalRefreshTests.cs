@@ -135,7 +135,7 @@ public sealed class IncrementalRefreshTests
         await workspace.PollAsync();
         clock.Now += TimeSpan.FromMinutes(2);
         await workspace.PollAsync();
-        Assert.HasCount(6, searches);
+        Assert.HasCount(account.Queries.Count * 2, searches);
         Assert.IsTrue(searches.All(expression => expression.Contains("updated:>=")));
         Assert.AreEqual(0, client.ActivityCalls);
         Assert.AreEqual(0, client.MetadataCalls);
@@ -169,8 +169,8 @@ public sealed class IncrementalRefreshTests
         await workspace.PollAsync();
         clock.Now += TimeSpan.FromMinutes(2);
         await workspace.PollAsync();
-        Assert.IsTrue(searches.Take(3).All(expression => !expression.Contains("updated:>=")));
-        Assert.IsTrue(searches.Skip(3).All(expression => expression.Contains("updated:>=")));
+        Assert.IsTrue(searches.Take(account.Queries.Count).All(expression => !expression.Contains("updated:>=")));
+        Assert.IsTrue(searches.Skip(account.Queries.Count).All(expression => expression.Contains("updated:>=")));
         Assert.AreEqual(0, client.ActivityCalls);
     }
 
@@ -288,7 +288,7 @@ public sealed class IncrementalRefreshTests
         var next = pollNext ? workspace.PollAsync() : workspace.CheckForUpdatesAsync(account.Queries[1].Id);
         release.SetResult();
         await Task.WhenAll(first, next);
-        Assert.HasCount(pollNext ? 4 : 2, searches);
+        Assert.HasCount(pollNext ? account.Queries.Count + 1 : 2, searches);
         if (!pollNext)
         {
             Assert.StartsWith($"({QueryParser.Parse(account.Queries[1].Expression, account.User.Login).Search}) ", searches[1]);
@@ -327,7 +327,7 @@ public sealed class IncrementalRefreshTests
         var workspace = await OpenAsync(database, client, clock, Cached(clock, 500));
         await workspace.PollAsync();
         Assert.AreEqual(0, client.ActivityCalls);
-        Assert.HasCount(3, expressions);
+        Assert.HasCount(workspace.Account!.Queries.Count, expressions);
         Assert.IsTrue(expressions.All(expression => expression.Contains("updated:>=2026-10-15T21:53:00Z") &&
             expression.EndsWith("sort:updated-desc")));
         Assert.IsTrue(workspace.Account!.Queries.All(query => query.ItemIds.Count == 500 && query.TotalCount == 500));
@@ -557,9 +557,10 @@ public sealed class IncrementalRefreshTests
         Assert.AreSame(poll, workspace.RefreshAsync());
         release.SetResult();
         await poll;
-        Assert.HasCount(6, expressions);
-        Assert.IsTrue(expressions.Take(3).All(expression => expression.Contains("updated:>=")));
-        Assert.IsTrue(expressions.Skip(3).All(expression => !expression.Contains("updated:>=")));
+        var queryCount = workspace.Account!.Queries.Count;
+        Assert.HasCount(queryCount * 2, expressions);
+        Assert.IsTrue(expressions.Take(queryCount).All(expression => expression.Contains("updated:>=")));
+        Assert.IsTrue(expressions.Skip(queryCount).All(expression => !expression.Contains("updated:>=")));
         Assert.AreEqual(0, client.ActivityCalls, "Full membership reconciliation must not reload unchanged discussion.");
     }
 

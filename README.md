@@ -23,11 +23,12 @@ GitHubToDo gives you a familiar, email-style workspace: saved searches on the le
 
 ## Your searches. Your inbox.
 
-Start with items involving you, your pull requests, and reviews requested from you. Then add whatever you need using GitHub's search syntax.
+Start with items involving you, your pull requests, reviews requested from you, and items assigned to you. Then add whatever you need using GitHub's search syntax.
 
 | What you want to follow | Example search |
 | --- | --- |
 | Open issues and pull requests involving you | `state:open archived:false involves:@me` |
+| Open issues and pull requests assigned to you | `assignee:@me state:open archived:false` |
 | Your open pull requests | `is:pr author:@me state:open` |
 | Pull requests awaiting your review | `is:pr review-requested:@me state:open archived:false` |
 | Bugs in a particular repository | `repo:dotnet/runtime is:issue is:open label:bug` |

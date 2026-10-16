@@ -57,7 +57,8 @@ public sealed class SavedQuery
     [
         new() { Name = "Items involving me", Expression = "state:open archived:false involves:@me" },
         new() { Name = "My pull requests", Expression = "is:pr author:@me state:open" },
-        new() { Name = "Review requested", Expression = "is:pr review-requested:@me state:open archived:false" }
+        new() { Name = "Review requested", Expression = "is:pr review-requested:@me state:open archived:false" },
+        new() { Name = "Items assigned to me", Expression = "assignee:@me state:open archived:false" }
     ];
 }
 
