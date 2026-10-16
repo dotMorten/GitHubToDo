@@ -248,7 +248,7 @@ public sealed class GraphQlGitHubClient(
                 request.Headers.UserAgent.ParseAdd("GitHubToDo/1.0");
                 request.Headers.Accept.ParseAdd("application/vnd.github+json");
                 request.Headers.Add("X-GitHub-Api-Version", "2026-03-10");
-                request.Content = JsonContent.Create(new { query = graph.Document, variables = graph.Variables });
+                request.Content = JsonContent.Create(new GraphQlPayload(graph.Document, graph.Variables), CoreJsonContext.Default.GraphQlPayload);
                 using var response = await http.SendAsync(request, cancellationToken);
                 var body = await response.Content.ReadAsStringAsync(cancellationToken);
                 if (!response.IsSuccessStatusCode)
@@ -425,11 +425,11 @@ public sealed class GraphQlGitHubClient(
     private sealed class GraphRequest
     {
         private readonly List<string> definitions = [];
-        public Dictionary<string, object?> Variables { get; } = [];
+        public Dictionary<string, string?> Variables { get; } = [];
         public List<RequestPart> Parts { get; } = [];
         public string Document => $"query({string.Join(", ", definitions)}) {{ rateLimit {{ remaining resetAt }} " +
             string.Join(" ", Parts.Select(part => $"{part.Alias}: {part.Selection}")) + " }";
-        public string Variable(string name, string type, object? value)
+        public string Variable(string name, string type, string? value)
         {
             definitions.Add($"${name}: {type}");
             Variables.Add(name, value);

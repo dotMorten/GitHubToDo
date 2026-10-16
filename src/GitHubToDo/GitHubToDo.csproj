@@ -84,7 +84,18 @@
   <PropertyGroup>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
     <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
-    <!-- Trimming breaks reflection-based bindings (TableView columns, x:Bind helpers) and crashes at startup. -->
-    <PublishTrimmed>False</PublishTrimmed>
+    <!-- Trim every publish, and run the trim/CsWinRT interop analyzers in every build (Debug included) so trim
+         breakage shows up as build warnings instead of a crash in the released package. -->
+    <PublishTrimmed>True</PublishTrimmed>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <IsAotCompatible>true</IsAotCompatible>
+    <!-- Lets the CsWinRT source generator emit trim-safe vtables for managed collections passed to ItemsSource. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- CommunityToolkit 7.x Markdown has no trim annotations: it creates its renderer via Activator.CreateInstance and
+         runs XAML static constructors by reflection (IL2077/IL2059). Keep just these assemblies whole. -->
+    <TrimmerRootAssembly Include="CommunityToolkit.WinUI.UI.Controls.Markdown" />
+    <TrimmerRootAssembly Include="CommunityToolkit.WinUI.UI.Controls.Core" />
+  </ItemGroup>
 </Project>

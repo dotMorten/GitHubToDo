@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Microsoft.Data.Sqlite;
 
 namespace GitHubToDo.Core;
@@ -95,14 +96,14 @@ public sealed class LocalStore
             await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             {
                 while (await reader.ReadAsync(cancellationToken))
-                    account.Queries.Add(Deserialize<SavedQuery>(reader.GetString(0)));
+                    account.Queries.Add(Deserialize(reader.GetString(0), CoreJsonContext.Default.SavedQuery));
             }
             command.CommandText = "SELECT Payload FROM Items WHERE Account=$account";
             await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             {
                 while (await reader.ReadAsync(cancellationToken))
                 {
-                    var item = Deserialize<TrackedItem>(reader.GetString(0));
+                    var item = Deserialize(reader.GetString(0), CoreJsonContext.Default.TrackedItem);
                     account.Items.Add(item.Id, item);
                 }
             }
@@ -110,7 +111,7 @@ public sealed class LocalStore
             await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             {
                 while (await reader.ReadAsync(cancellationToken))
-                    account.IgnoredAccounts.Add(Deserialize<IgnoredAccount>(reader.GetString(0)));
+                    account.IgnoredAccounts.Add(Deserialize(reader.GetString(0), CoreJsonContext.Default.IgnoredAccount));
             }
             return account;
         }
@@ -138,30 +139,30 @@ public sealed class LocalStore
             for (var i = 0; i < account.Queries.Count; i++)
                 await InsertAsync(connection, transaction,
                     "INSERT INTO SavedQueries VALUES($account,$id,$position,$payload)",
-                    key, account.Queries[i].Id, account.Queries[i], i, cancellationToken);
+                    key, account.Queries[i].Id, account.Queries[i], CoreJsonContext.Default.SavedQuery, i, cancellationToken);
             foreach (var item in account.Items.Values)
                 await InsertAsync(connection, transaction, """
                     INSERT INTO Items VALUES($account,$id,$payload)
                     ON CONFLICT(Account,Id) DO UPDATE SET Payload=excluded.Payload WHERE Items.Payload<>excluded.Payload
                     """,
-                    key, item.Id, item, null, cancellationToken);
+                    key, item.Id, item, CoreJsonContext.Default.TrackedItem, null, cancellationToken);
             foreach (var ignored in account.IgnoredAccounts)
                 await InsertAsync(connection, transaction, "INSERT INTO IgnoredAccounts VALUES($account,$id,$payload)",
-                    key, ignored.Login.ToLowerInvariant(), ignored, null, cancellationToken);
+                    key, ignored.Login.ToLowerInvariant(), ignored, CoreJsonContext.Default.IgnoredAccount, null, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
         finally { gate.Release(); }
     }
 
     private static async Task InsertAsync<T>(SqliteConnection connection, SqliteTransaction transaction,
-        string sql, string account, string id, T value, int? position, CancellationToken cancellationToken)
+        string sql, string account, string id, T value, JsonTypeInfo<T> typeInfo, int? position, CancellationToken cancellationToken)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = sql;
         command.Parameters.AddWithValue("$account", account);
         command.Parameters.AddWithValue("$id", id);
-        command.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(value));
+        command.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(value, typeInfo));
         if (position.HasValue)
             command.Parameters.AddWithValue("$position", position.Value);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -177,7 +178,7 @@ public sealed class LocalStore
             command.CommandText = "SELECT Payload FROM HttpCache WHERE Key=$key";
             command.Parameters.AddWithValue("$key", key);
             return await command.ExecuteScalarAsync(cancellationToken) is string json
-                ? Deserialize<HttpCacheEntry>(json) : null;
+                ? Deserialize(json, CoreJsonContext.Default.HttpCacheEntry) : null;
         }
         finally { gate.Release(); }
     }
@@ -191,13 +192,14 @@ public sealed class LocalStore
             using var command = connection.CreateCommand();
             command.CommandText = "INSERT INTO HttpCache VALUES($key,$payload) ON CONFLICT(Key) DO UPDATE SET Payload=excluded.Payload";
             command.Parameters.AddWithValue("$key", key);
-            command.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(entry));
+            command.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(entry, CoreJsonContext.Default.HttpCacheEntry));
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
         finally { gate.Release(); }
     }
 
-    internal static T Clone<T>(T value) => Deserialize<T>(JsonSerializer.Serialize(value));
-    private static T Deserialize<T>(string json) =>
-        JsonSerializer.Deserialize<T>(json) ?? throw new InvalidDataException($"Invalid stored {typeof(T).Name}.");
+    internal static AccountSnapshot Clone(AccountSnapshot value) =>
+        Deserialize(JsonSerializer.Serialize(value, CoreJsonContext.Default.AccountSnapshot), CoreJsonContext.Default.AccountSnapshot);
+    private static T Deserialize<T>(string json, JsonTypeInfo<T> typeInfo) =>
+        JsonSerializer.Deserialize(json, typeInfo) ?? throw new InvalidDataException($"Invalid stored {typeof(T).Name}.");
 }

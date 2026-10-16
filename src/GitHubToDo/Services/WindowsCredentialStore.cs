@@ -16,11 +16,11 @@ public sealed class WindowsCredentialStore : ICredentialStore
         try { credential = _vault.Retrieve(Resource, UserName); }
         catch (Exception ex) when (ex.HResult == unchecked((int)0x80070490)) { return null; }
         credential.RetrievePassword();
-        return JsonSerializer.Deserialize<OAuthToken>(credential.Password);
+        return JsonSerializer.Deserialize(credential.Password, CoreJsonContext.Default.OAuthToken);
     }
 
     public void Save(OAuthToken token) =>
-        _vault.Add(new PasswordCredential(Resource, UserName, JsonSerializer.Serialize(token)));
+        _vault.Add(new PasswordCredential(Resource, UserName, JsonSerializer.Serialize(token, CoreJsonContext.Default.OAuthToken)));
 
     public void Clear()
     {
