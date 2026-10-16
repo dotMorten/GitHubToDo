@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GitHubToDo.Core/GitHubToDo.Core.csproj" />
+    <Project Path="src/GitHubToDo/GitHubToDo.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GitHubToDo.Core.Tests/GitHubToDo.Core.Tests.csproj" />
+  </Folder>
+</Solution>

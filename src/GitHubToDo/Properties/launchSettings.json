@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "GitHubToDo (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "GitHubToDo (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

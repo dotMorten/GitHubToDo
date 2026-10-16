@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="GitHubToDo.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:GitHubToDo">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <TabularControlsResources xmlns="using:Microsoft.UI.Xaml.Controls.Tabular" />
+            </ResourceDictionary.MergedDictionaries>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="StateOpenBrush" Color="#1A7F37" />
+                    <SolidColorBrush x:Key="StateMergedBrush" Color="#8250DF" />
+                    <SolidColorBrush x:Key="StateClosedBrush" Color="#CF222E" />
+                    <SolidColorBrush x:Key="StateOpenFillBrush" Color="#1F883D" />
+                    <SolidColorBrush x:Key="StateMergedFillBrush" Color="#8250DF" />
+                    <SolidColorBrush x:Key="StateClosedFillBrush" Color="#CF222E" />
+                    <SolidColorBrush x:Key="StatePillForegroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="FollowUpFlagBrush" Color="#C4314B" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="StateOpenBrush" Color="#3FB950" />
+                    <SolidColorBrush x:Key="StateMergedBrush" Color="#A371F7" />
+                    <SolidColorBrush x:Key="StateClosedBrush" Color="#F85149" />
+                    <SolidColorBrush x:Key="StateOpenFillBrush" Color="#238636" />
+                    <SolidColorBrush x:Key="StateMergedFillBrush" Color="#8957E5" />
+                    <SolidColorBrush x:Key="StateClosedFillBrush" Color="#DA3633" />
+                    <SolidColorBrush x:Key="StatePillForegroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="FollowUpFlagBrush" Color="#FF6B81" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="StateOpenBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="StateMergedBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="StateClosedBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="StateOpenFillBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="StateMergedFillBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="StateClosedFillBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="StatePillForegroundBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+                    <SolidColorBrush x:Key="FollowUpFlagBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

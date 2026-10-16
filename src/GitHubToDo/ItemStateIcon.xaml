@@ -1,0 +1,47 @@
+<UserControl
+    x:Class="GitHubToDo.ItemStateIcon"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    IsTabStop="False">
+    <Grid>
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="StateGroup">
+                <VisualState x:Name="Open">
+                    <VisualState.Setters>
+                        <Setter Target="Glyph.Foreground" Value="{ThemeResource StateOpenBrush}" />
+                        <Setter Target="Pill.Background" Value="{ThemeResource StateOpenFillBrush}" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Merged">
+                    <VisualState.Setters>
+                        <Setter Target="Glyph.Foreground" Value="{ThemeResource StateMergedBrush}" />
+                        <Setter Target="Pill.Background" Value="{ThemeResource StateMergedFillBrush}" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Closed">
+                    <VisualState.Setters>
+                        <Setter Target="Glyph.Foreground" Value="{ThemeResource StateClosedBrush}" />
+                        <Setter Target="Pill.Background" Value="{ThemeResource StateClosedFillBrush}" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Completed">
+                    <VisualState.Setters>
+                        <Setter Target="Glyph.Foreground" Value="{ThemeResource StateMergedBrush}" />
+                        <Setter Target="Pill.Background" Value="{ThemeResource StateMergedFillBrush}" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+        <PathIcon x:Name="Glyph" Width="16" Height="16" VerticalAlignment="Center" HorizontalAlignment="Center"
+                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <Border x:Name="Pill" Visibility="Collapsed" CornerRadius="14" Padding="10,4,12,4" VerticalAlignment="Center"
+                Background="{ThemeResource ControlFillColorDefaultBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon x:Name="PillGlyph" Width="16" Height="16" VerticalAlignment="Center"
+                          Foreground="{ThemeResource StatePillForegroundBrush}" />
+                <TextBlock x:Name="PillText" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13"
+                           Foreground="{ThemeResource StatePillForegroundBrush}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

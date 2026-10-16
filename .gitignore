@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+TestResults/
+*.user
+*.msix
+*.msixbundle
+
+# Optional local AI Limited Access Feature token (never commit)
+githubtodo.local.json
