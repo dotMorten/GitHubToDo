@@ -54,11 +54,17 @@ Both AI features are optional and require a compatible Windows device with the l
 
 ## Get started
 
-1. **[Download the latest release](https://github.com/dotMorten/GitHubToDo/releases/latest).** Choose the signed `.msix` for your PC: **ARM64** for Snapdragon/Windows on Arm, or **x64** for Intel and AMD.
+1. **[Download the latest release](https://github.com/dotMorten/GitHubToDo/releases/latest).** Choose **[ARM64](https://github.com/dotMorten/GitHubToDo/releases/latest/download/GitHubToDo_arm64.appinstaller)** for Snapdragon/Windows on Arm, or **[x64](https://github.com/dotMorten/GitHubToDo/releases/latest/download/GitHubToDo_x64.appinstaller)** for Intel and AMD. Open the downloaded `.appinstaller` file with Windows App Installer.
 2. **Install and open GitHubToDo.** Official releases include the runtimes and sign-in configuration; no developer tools or OAuth app setup needed.
 3. **Sign in to GitHub.** Follow the browser authorization prompt, then explore the starter searches or add your own.
 
 Private repositories are optional. Enable private access when signing in if you need them; GitHub requires the broad `repo` permission for that access. Your organization may also require SSO authorization or app approval.
+
+### Automatic app updates
+
+Starting with v0.1.3, Windows App Installer checks for new **stable releases** on launch and periodically in the background (normally every eight hours). Checks are silent and don't block launch; an update may take effect the next time you open the app. Windows settings, organization policy, network availability, and whether the app is running can affect when updates are applied. Prereleases aren't delivered through this channel.
+
+Use the `.appinstaller` download above to enroll in automatic updates. Stable-release `.msix` files also embed the same update configuration for direct installs on supported Windows versions (Windows 11); the `.appinstaller` route is recommended. An older MSIX installation isn't automatically enrolled: open the architecture-matching `.appinstaller` once to enroll. The update keeps your local data as long as the package identity and publisher remain unchanged.
 
 ## Your reading list, not another place to manage GitHub
 
@@ -95,6 +101,14 @@ Run the core tests with:
 
 ```powershell
 dotnet test .\tests\GitHubToDo.Core.Tests
+```
+
+The on-demand Release workflow publishes signed x64/ARM64 MSIX packages. For stable releases it also generates `GitHubToDo_x64.appinstaller` and `GitHubToDo_arm64.appinstaller`, embeds the matching file as `Update.appinstaller`, and verifies the packaged identity and embedded content before publishing. Each feed has a stable `releases/latest/download/…` URL and points to the exact versioned MSIX in its release. Prereleases omit the update configuration and cannot replace GitHub's latest stable release. Keep the package name and signing publisher unchanged between releases and use increasing versions.
+
+Test the release-feed generator and package verifier without building or installing the app:
+
+```powershell
+.\tests\ReleaseAppInstaller.Tests.ps1
 ```
 
 </details>

@@ -2,6 +2,7 @@ name: Release
 
 # On-demand: Actions > Release > Run workflow. Builds signed x64 and ARM64 MSIX packages with the official
 # OAuth client ID baked in and publishes them to a GitHub release tagged v<version>.
+# Stable releases also embed and publish App Installer feeds for Windows-managed automatic updates.
 #
 # Repository variables: GITHUBTODO_CLIENT_ID, MSIX_PUBLISHER (must exactly match the signing certificate subject),
 #   MSIX_PUBLISHER_DISPLAY_NAME, AZURE_SIGNING_ENDPOINT, AZURE_SIGNING_ACCOUNT, AZURE_SIGNING_PROFILE
@@ -49,6 +50,9 @@ jobs:
           AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
         run: |
           if ($env:VERSION -notmatch '^\d{1,5}\.\d{1,5}\.\d{1,5}$') { throw "Version must be major.minor.build (e.g. 1.0.0), got '$env:VERSION'." }
+          $version = [version]"$env:VERSION.0"
+          if ($version.Major -gt 65535 -or $version.Minor -gt 65535 -or $version.Build -gt 65535) { throw 'MSIX version components must not exceed 65535.' }
+          if ($env:VERSION -ne "$($version.Major).$($version.Minor).$($version.Build)") { throw 'Version components must not have leading zeros.' }
           foreach ($name in 'GITHUBTODO_CLIENT_ID','MSIX_PUBLISHER','AZURE_SIGNING_ENDPOINT','AZURE_SIGNING_ACCOUNT','AZURE_SIGNING_PROFILE') {
             if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Repository variable $name is not set." }
           }
@@ -79,28 +83,52 @@ jobs:
         env:
           MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
           MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
           $path = Resolve-Path 'src/GitHubToDo/Package.appxmanifest'
           [xml]$manifest = Get-Content $path -Raw
           $manifest.Package.Identity.Version = "$env:VERSION.0"
           $manifest.Package.Identity.Publisher = $env:MSIX_PUBLISHER
           if ($env:MSIX_PUBLISHER_DISPLAY_NAME) { $manifest.Package.Properties.PublisherDisplayName = $env:MSIX_PUBLISHER_DISPLAY_NAME }
+          if ($env:PRERELEASE -ne 'true') {
+            $namespace = 'http://schemas.microsoft.com/appx/manifest/uap/windows10/13'
+            $manifest.Package.SetAttribute('xmlns:uap13', $namespace)
+            $manifest.Package.SetAttribute('IgnorableNamespaces', "$($manifest.Package.IgnorableNamespaces) uap13")
+            $autoUpdate = $manifest.CreateElement('uap13', 'AutoUpdate', $namespace)
+            $appInstaller = $manifest.CreateElement('uap13', 'AppInstaller', $namespace)
+            $appInstaller.SetAttribute('File', 'Update.appinstaller')
+            [void]$autoUpdate.AppendChild($appInstaller)
+            [void]$manifest.Package.Properties.AppendChild($autoUpdate)
+          }
           $manifest.Save($path)
           Write-Host "Identity: $($manifest.Package.Identity.Name) $($manifest.Package.Identity.Version) $($manifest.Package.Identity.Publisher)"
 
       - name: Run core tests
         run: dotnet test tests/GitHubToDo.Core.Tests -c Release
 
+      - name: Test App Installer generation
+        shell: pwsh
+        run: .\tests\ReleaseAppInstaller.Tests.ps1
+
       - name: Build MSIX packages
         shell: pwsh
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
           $out = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
           New-Item -ItemType Directory -Force "$out\release" | Out-Null
           foreach ($arch in 'x64','arm64') {
             $platform = if ($arch -eq 'arm64') { 'ARM64' } else { 'x64' }
+            $updateArguments = @()
+            if ($env:PRERELEASE -ne 'true') {
+              $installerPath = "$out\release\GitHubToDo_$arch.appinstaller"
+              .\.github\scripts\New-AppInstaller.ps1 -ManifestPath 'src\GitHubToDo\Package.appxmanifest' `
+                -Architecture $arch -Repository $env:GITHUB_REPOSITORY -OutputPath $installerPath
+              $updateArguments = @("-p:ReleaseAppInstallerPath=$installerPath")
+            }
             dotnet publish src/GitHubToDo/GitHubToDo.csproj -c Release -r "win-$arch" "-p:Platform=$platform" `
               -p:GenerateAppxPackageOnBuild=true -p:AppxPackageSigningEnabled=false -p:AppxBundle=Never `
-              "-p:AppxPackageDir=$out\pkg\$arch\" -tl:off
+              "-p:AppxPackageDir=$out\pkg\$arch\" @updateArguments -tl:off
             if ($LASTEXITCODE -ne 0) { throw "Packaging $arch failed." }
             $msix = Get-ChildItem "$out\pkg\$arch" -Recurse -Filter '*.msix' | Select-Object -First 1
             if (-not $msix) { throw "No $arch MSIX produced." }
@@ -141,10 +169,22 @@ jobs:
             if (-not $sig.SignerCertificate) { throw "$($file.Name) is not signed." }
           }
 
+      - name: Verify packaged update configuration
+        if: ${{ !inputs.prerelease }}
+        shell: pwsh
+        run: |
+          foreach ($arch in 'x64','arm64') {
+            .\.github\scripts\Test-AppInstallerPackage.ps1 `
+              -PackagePath "artifacts\release\GitHubToDo_$($env:VERSION)_$arch.msix" `
+              -AppInstallerPath "artifacts\release\GitHubToDo_$arch.appinstaller"
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: GitHubToDo-${{ inputs.version }}
-          path: artifacts/release/*.msix
+          path: |
+            artifacts/release/*.msix
+            artifacts/release/*.appinstaller
           if-no-files-found: error
 
       - name: Create GitHub release
@@ -153,8 +193,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          $files = (Get-ChildItem artifacts/release -Filter *.msix).FullName
+          $files = (Get-ChildItem artifacts/release -File | Where-Object Extension -in '.msix','.appinstaller').FullName
           $flags = @('--target', $env:GITHUB_SHA, '--title', "GitHubToDo $env:VERSION", '--generate-notes', '--repo', $env:GITHUB_REPOSITORY)
-          if ($env:PRERELEASE -eq 'true') { $flags += '--prerelease' }
+          if ($env:PRERELEASE -eq 'true') { $flags += '--prerelease'; $flags += '--latest=false' }
+          else { $flags += '--latest' }
           gh release create "v$env:VERSION" @files @flags
           if ($LASTEXITCODE -ne 0) { throw 'Release creation failed.' }
