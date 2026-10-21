@@ -551,7 +551,7 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
                 ? Account.Items.Values.Where(item => item.HasFollowUps).Select(item => item.Id)
                 : Account.Queries.Where(query => queryId is null || query.Id == queryId).SelectMany(query => query.ItemIds);
             var items = ids.Distinct().Where(Account.Items.ContainsKey).Select(id => Account.Items[id])
-                .Where(item => force || item.ColumnsCheckedAt is null || item.ColumnsCheckedAt > now ||
+                .Where(item => force || item.ColumnMetadata is null || item.ColumnsCheckedAt is null || item.ColumnsCheckedAt > now ||
                     now - item.ColumnsCheckedAt >= FullRefreshInterval ||
                     includeProjects && item.ColumnMetadata?.IncludesProjects != true && item.ColumnMetadata?.ProjectError is null)
                 .ToArray();
@@ -564,6 +564,8 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
                 try { results = await columnClient.GetColumnMetadataBatchAsync(batch, includeProjects, ct); }
                 catch (Exception error) when (BatchErrors.IsRecoverable(error, ct))
                 { results = batch.ToDictionary(item => item.Id, _ => new BatchResult<ItemColumnMetadata>(null, error)); }
+                ct.ThrowIfCancellationRequested();
+                if (generation != startGeneration || !ColumnMetadataEnabled) return 0;
                 await MutateAsync(account =>
                 {
                     foreach (var item in batch)
@@ -582,7 +584,8 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
                         }
                     }
                 }, ct, startGeneration);
-                if (PauseForBatchErrors(results.Values.Select(result => result.Error).ToArray(), startGeneration))
+                if (PauseForBatchErrors(results.Values.Select(result => result.Error)
+                    .Where(error => error is not GitHubException { StatusCode: 403 }).ToArray(), startGeneration))
                     return failures;
             }
             if (items.Length > 0)

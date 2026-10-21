@@ -5,6 +5,7 @@ namespace GitHubToDo.Core;
 
 public sealed partial class GraphQlGitHubClient
 {
+    private readonly GitHubClient publicColumns = new(http, _ => Task.FromResult(""), store);
     private const string ProjectValueFields =
         "__typename ... on ProjectV2ItemFieldSingleSelectValue { name } " +
         "... on ProjectV2ItemFieldTextValue { text } ... on ProjectV2ItemFieldNumberValue { number } " +
@@ -39,6 +40,30 @@ public sealed partial class GraphQlGitHubClient
                     });
                 }
                 await ExecuteAsync(request, cancellationToken);
+            }
+            foreach (var job in work.Where(job => job.Error is GitHubException { StatusCode: 403 } error &&
+                error.Message.Contains("OAuth App access restrictions", StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    var metadata = await publicColumns.GetColumnMetadataAsync(job.Item, cancellationToken);
+                    job.Labels.Clear();
+                    job.Labels.UnionWith(metadata.Labels);
+                    job.IssueType = metadata.IssueType;
+                    job.Milestone = metadata.Milestone;
+                    job.Error = null;
+                }
+                catch (Exception error) when (BatchErrors.IsRecoverable(error, cancellationToken))
+                {
+                    // Anonymous access only recovers public metadata; private/inaccessible items remain errors.
+                    job.Error = error;
+                    if (error is GitHubException { StatusCode: 429 })
+                    {
+                        foreach (var pending in work.Where(pending => pending.Error is not null))
+                            pending.Error = error;
+                        break;
+                    }
+                }
             }
             if (includeProjects)
                 await ReadProjectColumnsAsync(work.Where(job => job.Error is null).ToArray(), cancellationToken);

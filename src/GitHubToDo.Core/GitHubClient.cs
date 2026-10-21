@@ -90,6 +90,30 @@ public sealed partial class GitHubClient(
         return activities;
     }
 
+    internal async Task<ItemColumnMetadata> GetColumnMetadataAsync(TrackedItem item, CancellationToken cancellationToken)
+    {
+        var repository = string.Join("/", item.Repository.Split('/').Select(Uri.EscapeDataString));
+        var page = await GetPageAsync(new($"https://api.github.com/repos/{repository}/issues/{item.Number}"), cancellationToken);
+        try
+        {
+            using var document = JsonDocument.Parse(page.Body);
+            var root = document.RootElement;
+            if (Text(root, "node_id") != item.Id)
+                throw new GitHubException("GitHub returned metadata for a different item. Cached column values are retained.");
+            var labels = root.GetProperty("labels").EnumerateArray().Select(label => label.GetProperty("name").GetString() ??
+                throw new GitHubException("GitHub returned a label without a name. Cached column values are retained."))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.OrdinalIgnoreCase).ToArray();
+            var issueType = !item.IsPullRequest && root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.Object
+                ? Text(type, "name") : null;
+            var milestone = root.GetProperty("milestone");
+            return new(labels, issueType, milestone.ValueKind == JsonValueKind.Object ? Text(milestone, "title") : null, [], false);
+        }
+        catch (Exception error) when (error is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            throw new GitHubException("GitHub returned incomplete column metadata. Cached values are retained. " + error.Message);
+        }
+    }
+
     private async Task<List<JsonElement>> GetArrayAsync(Uri url, CancellationToken cancellationToken)
     {
         var result = new List<JsonElement>();
@@ -122,7 +146,7 @@ public sealed partial class GitHubClient(
             for (var attempt = 0; ; attempt++)
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-                request.Headers.Authorization = new("Bearer", token);
+                if (!string.IsNullOrEmpty(token)) request.Headers.Authorization = new("Bearer", token);
                 request.Headers.UserAgent.ParseAdd("GitHubToDo/1.0");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
                 request.Headers.Add("X-GitHub-Api-Version", "2026-03-10");
@@ -143,7 +167,7 @@ public sealed partial class GitHubClient(
                         message.Contains("rate limit", StringComparison.OrdinalIgnoreCase)))
                     {
                         notBefore = RetryAt(response);
-                        throw new GitHubException($"GitHub rate limit: retry after {notBefore.ToLocalTime():t}. {message}", status);
+                        throw new GitHubException($"GitHub rate limit: retry after {notBefore.ToLocalTime():t}. {message}", 429);
                     }
                     if (status >= 500 && attempt < 2)
                     {

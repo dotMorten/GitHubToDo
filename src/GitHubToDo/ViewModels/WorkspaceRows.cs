@@ -252,7 +252,7 @@ public sealed class ItemRow : ObservableObject
     {
         SetProperty(ref _item, item, nameof(Item));
         var columns = item.ColumnMetadata;
-        var missing = item.ColumnsError is null ? "…" : "Unavailable";
+        var missing = item.ColumnsError is null ? "…" : "—";
         SetProperty(ref _labels, columns is null ? missing :
             columns.Labels.Count == 0 ? "—" : string.Join(", ", columns.Labels), nameof(Labels));
         SetProperty(ref _issueType, columns is null ? missing : columns.IssueType ?? "—", nameof(IssueType));
@@ -261,7 +261,7 @@ public sealed class ItemRow : ObservableObject
         SetProperty(ref _effort, ProjectColumn(columns, value => value.Effort, missing), nameof(Effort));
         SetProperty(ref _columnMetadataStatus,
             $"{Labels}\nType: {IssueType}\nMilestone: {Milestone}\nPriority: {Priority}\nEffort: {Effort}\n" +
-            (item.ColumnsError ?? columns?.ProjectError ??
+            (item.ColumnsError is { } error ? $"Column values could not be loaded. {error}" : columns?.ProjectError ??
                 (item.ColumnsCheckedAt is { } checkedAt ? $"Columns checked {checkedAt.ToLocalTime():g}" : "Column metadata not loaded.")),
             nameof(ColumnMetadataStatus));
         SetProperty(ref _kind, item.IsPullRequest ? "PR" : "Issue", nameof(Kind));
@@ -346,7 +346,7 @@ public sealed class ItemRow : ObservableObject
     private static string ProjectColumn(ItemColumnMetadata? metadata, Func<ProjectColumnValue, string?> value, string missing)
     {
         if (metadata is null) return missing;
-        if (!metadata.IncludesProjects) return metadata.ProjectError is null ? "Project access required" : "Unavailable";
+        if (!metadata.IncludesProjects) return metadata.ProjectError is null ? "Project access required" : "—";
         var values = metadata.Projects.Where(project => !string.IsNullOrWhiteSpace(value(project)))
             .OrderBy(project => project.Project, StringComparer.CurrentCultureIgnoreCase)
             .Select(project => metadata.Projects.Count > 1 ? $"{project.Project}: {value(project)}" : value(project));

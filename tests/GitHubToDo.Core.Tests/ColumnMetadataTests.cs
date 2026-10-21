@@ -120,4 +120,103 @@ public sealed class ColumnMetadataTests
         await workspace.RefreshColumnsAsync("active");
         Assert.StartsWith("Columns checked at ", workspace.Progress);
     }
+
+    [TestMethod]
+    public async Task OneDeniedBatchDoesNotLeaveLaterItemsWithoutMetadata()
+    {
+        using var database = new TestDatabase();
+        var client = new FakeClient();
+        var items = Enumerable.Range(0, GitHubBatching.ItemsPerRequest + 1).Select(index =>
+        {
+            var item = FakeClient.NewItem();
+            item.Id = $"item-{index}";
+            return item;
+        }).ToArray();
+        client.Columns = (item, _) => item.Id == items[^1].Id
+            ? new(new(["bug"], null, null, [], false), null)
+            : new(null, new GitHubException("Organization access denied", 403));
+        await database.Store.SaveAsync(new AccountSnapshot
+        {
+            User = client.User, Items = items.ToDictionary(item => item.Id),
+            Queries = [new() { Id = "active", ItemIds = items.Select(item => item.Id).ToList() }]
+        });
+        var workspace = new WorkspaceService(database.Store, client) { ColumnMetadataEnabled = true };
+        await workspace.OpenAsync(client.User);
+        Assert.AreEqual(GitHubBatching.ItemsPerRequest, await workspace.RefreshColumnsAsync("active"));
+        Assert.HasCount(2, client.ColumnBatches);
+        Assert.AreEqual("bug", workspace.Account!.Items[items[^1].Id].ColumnMetadata!.Labels.Single());
+    }
+
+    [TestMethod]
+    public async Task FailedInitialColumnsCanRetryImmediatelyWhenShownAgain()
+    {
+        using var database = new TestDatabase();
+        var client = new FakeClient { Columns = (_, _) => new(null, new GitHubException("Organization access denied", 403)) };
+        var item = FakeClient.NewItem();
+        await database.Store.SaveAsync(new AccountSnapshot
+        {
+            User = client.User, Items = new() { [item.Id] = item },
+            Queries = [new() { Id = "active", ItemIds = [item.Id] }]
+        });
+        var workspace = new WorkspaceService(database.Store, client) { ColumnMetadataEnabled = true };
+        await workspace.OpenAsync(client.User);
+        await workspace.RefreshColumnsAsync("active");
+        workspace.ColumnMetadataEnabled = false;
+        client.Columns = null;
+        workspace.ColumnMetadataEnabled = true;
+        await workspace.RefreshColumnsAsync("active");
+        Assert.HasCount(2, client.ColumnBatches);
+        Assert.AreEqual("bug", workspace.Account!.Items[item.Id].ColumnMetadata!.Labels.Single());
+        Assert.IsNull(workspace.Account.Items[item.Id].ColumnsError);
+    }
+
+    [TestMethod]
+    public async Task HidingColumnsDiscardsALateFailureWithoutPublishingErrorState()
+    {
+        using var database = new TestDatabase();
+        var client = new FakeClient();
+        var item = FakeClient.NewItem();
+        await database.Store.SaveAsync(new AccountSnapshot
+        {
+            User = client.User, Items = new() { [item.Id] = item },
+            Queries = [new() { Id = "active", ItemIds = [item.Id] }]
+        });
+        var workspace = new WorkspaceService(database.Store, client) { ColumnMetadataEnabled = true };
+        await workspace.OpenAsync(client.User);
+        client.Columns = (_, _) =>
+        {
+            workspace.ColumnMetadataEnabled = false;
+            return new(null, new GitHubException("Late access denial", 403));
+        };
+        Assert.AreEqual(0, await workspace.RefreshColumnsAsync("active"));
+        var saved = await database.Store.LoadAsync(client.User);
+        Assert.IsNull(saved.Items[item.Id].ColumnsError);
+        Assert.IsNull(saved.Items[item.Id].ColumnsCheckedAt);
+        Assert.DoesNotContain("error", workspace.Progress, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [TestMethod]
+    public async Task CancelledColumnLoadDoesNotPersistAnError()
+    {
+        using var database = new TestDatabase();
+        using var cancellation = new CancellationTokenSource();
+        var client = new FakeClient();
+        var item = FakeClient.NewItem();
+        await database.Store.SaveAsync(new AccountSnapshot
+        {
+            User = client.User, Items = new() { [item.Id] = item },
+            Queries = [new() { Id = "active", ItemIds = [item.Id] }]
+        });
+        var workspace = new WorkspaceService(database.Store, client) { ColumnMetadataEnabled = true };
+        await workspace.OpenAsync(client.User);
+        client.Columns = (_, _) =>
+        {
+            cancellation.Cancel();
+            return new(null, new GitHubException("Late access denial", 403));
+        };
+        await Assert.ThrowsAsync<OperationCanceledException>(() => workspace.RefreshColumnsAsync("active", ct: cancellation.Token));
+        var saved = await database.Store.LoadAsync(client.User);
+        Assert.IsNull(saved.Items[item.Id].ColumnsError);
+        Assert.IsNull(saved.Items[item.Id].ColumnsCheckedAt);
+    }
 }

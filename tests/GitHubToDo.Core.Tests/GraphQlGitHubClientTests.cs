@@ -741,17 +741,92 @@ public sealed class GraphQlGitHubClientTests
         Assert.IsNull(result.Value, "Authentication and rate limits must reach refresh/session handling.");
     }
 
+    [TestMethod]
+    public async Task OAuthRestrictedPublicColumnsRetryWithoutCredentialsAndPreserveOtherResults()
+    {
+        var publicRequests = 0;
+        var client = Client((_, _) => Response(new { n0 = (object?)null, n1 = ColumnNode(["native"]) },
+            new[] { new { type = "FORBIDDEN", message = "The organization has enabled OAuth App access restrictions.", path = new[] { "n0" } } }),
+            request =>
+            {
+                publicRequests++;
+                Assert.IsNull(request.Headers.Authorization, "Public retries must not forward the denied token.");
+                Assert.AreEqual("https://api.github.com/repos/o/r/issues/1", request.RequestUri!.AbsoluteUri);
+                return FakeHandler.Json("""{"node_id":"a","labels":[{"name":"triage"},{"name":"bug"}],"type":{"name":"Task"},"milestone":{"title":"Next"}}""");
+            });
+        var results = await client.GetColumnMetadataBatchAsync([Tracked("a"), Tracked("b")], false, default);
+        Assert.IsNull(results["a"].Error);
+        CollectionAssert.AreEqual(new[] { "bug", "triage" }, results["a"].Value!.Labels.ToArray());
+        Assert.AreEqual("Task", results["a"].Value!.IssueType);
+        Assert.AreEqual("Next", results["a"].Value!.Milestone);
+        Assert.AreEqual("native", results["b"].Value!.Labels.Single());
+        Assert.AreEqual(1, publicRequests);
+        Assert.HasCount(1, requests);
+    }
+
+    [TestMethod]
+    [DataRow(HttpStatusCode.NotFound)]
+    [DataRow(HttpStatusCode.Forbidden)]
+    public async Task InaccessiblePublicRetryRemainsAnErrorRatherThanEmptyLabels(HttpStatusCode status)
+    {
+        var client = Client((_, _) => Response(null,
+            new[] { new { type = "FORBIDDEN", message = "OAuth App access restrictions" } }),
+            request =>
+            {
+                Assert.IsNull(request.Headers.Authorization);
+                return FakeHandler.Json("""{"message":"Not accessible"}""", status);
+            });
+        var result = (await client.GetColumnMetadataBatchAsync([Tracked("a")], false, default))["a"];
+        Assert.IsNotNull(result.Error);
+        Assert.IsNull(result.Value);
+    }
+
+    [TestMethod]
+    public async Task PublicRetryRateLimitStopsRemainingRequests()
+    {
+        var publicRequests = 0;
+        var client = Client((_, _) => Response(null,
+            new[] { new { type = "FORBIDDEN", message = "OAuth App access restrictions" } }),
+            _ =>
+            {
+                publicRequests++;
+                return FakeHandler.Json("""{"message":"API rate limit exceeded"}""", HttpStatusCode.Forbidden);
+            });
+        var results = await client.GetColumnMetadataBatchAsync([Tracked("a"), Tracked("b")], false, default);
+        Assert.AreEqual(1, publicRequests);
+        foreach (var result in results.Values)
+        {
+            Assert.IsInstanceOfType<GitHubException>(result.Error);
+            Assert.AreEqual(429, ((GitHubException)result.Error).StatusCode);
+        }
+    }
+
+    [TestMethod]
+    public async Task PublicRetryRejectsMetadataFromAnotherItem()
+    {
+        var client = Client((_, _) => Response(null,
+            new[] { new { type = "FORBIDDEN", message = "OAuth App access restrictions" } }),
+            _ => FakeHandler.Json("""{"node_id":"another-item","labels":[],"milestone":null}"""));
+        var result = (await client.GetColumnMetadataBatchAsync([Tracked("a")], false, default))["a"];
+        Assert.IsNotNull(result.Error);
+        Assert.Contains("different item", result.Error.Message);
+        Assert.IsNull(result.Value);
+    }
+
     private static object ColumnNode(string[] labels, string? cursor = null) => new
     {
         __typename = "Issue", issueType = new { name = "Bug" }, milestone = new { title = "v1" },
         labels = Connection(labels.Select(name => (object)new { name }).ToArray(), cursor)
     };
 
-    private GraphQlGitHubClient Client(Func<JsonElement, int, HttpResponseMessage> respond)
+    private GraphQlGitHubClient Client(Func<JsonElement, int, HttpResponseMessage> respond,
+        Func<HttpRequestMessage, HttpResponseMessage>? publicResponse = null)
     {
         http?.Dispose();
         http = new(new FakeHandler(async (request, ct) =>
         {
+            if (request.Method == HttpMethod.Get && publicResponse is not null)
+                return publicResponse(request);
             Assert.AreEqual(HttpMethod.Post, request.Method);
             Assert.AreEqual("https://api.github.com/graphql", request.RequestUri!.AbsoluteUri);
             using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));

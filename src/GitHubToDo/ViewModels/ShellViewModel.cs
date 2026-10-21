@@ -71,6 +71,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty] public partial bool IncludePrivate { get; set; }
     [ObservableProperty] public partial bool IncludeProjects { get; set; }
     private bool _projectColumnsVisible;
+    private CancellationTokenSource? _columnLoadCancellation;
 
     public async Task ConfigureColumnsAsync(bool visible, bool projectsVisible)
     {
@@ -80,13 +81,26 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         await LoadColumnMetadataAsync();
     }
 
-    private Task LoadColumnMetadataAsync() => IsSignedIn && SelectedQuery is { } query && _workspace.ColumnMetadataEnabled
-        ? RunAsync(async () =>
+    private async Task LoadColumnMetadataAsync()
+    {
+        _columnLoadCancellation?.Cancel();
+        if (!IsSignedIn || SelectedQuery is not { } query || !_workspace.ColumnMetadataEnabled) return;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_session.Token);
+        _columnLoadCancellation = cancellation;
+        try
         {
-            var failures = await _workspace.RefreshColumnsAsync(query.Id, ct: _session.Token);
-            if (failures > 0) Error = "Some optional column values could not be refreshed. Hover a column value for details.";
-            UpdateProjection();
-        }) : Task.CompletedTask;
+            await RunAsync(async () =>
+            {
+                try { await _workspace.RefreshColumnsAsync(query.Id, ct: cancellation.Token); }
+                catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+                if (!cancellation.IsCancellationRequested) UpdateProjection();
+            });
+        }
+        finally
+        {
+            if (ReferenceEquals(_columnLoadCancellation, cancellation)) _columnLoadCancellation = null;
+        }
+    }
 
     partial void OnIncludeProjectsChanged(bool value) => _workspace.IncludeProjectFields = _projectColumnsVisible && value;
     [ObservableProperty]

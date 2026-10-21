@@ -9,6 +9,25 @@ namespace GitHubToDo.Core.Tests;
 public sealed class WorkspaceRowsTests
 {
     [TestMethod]
+    public void FailedOptionalCellsUseNeutralPlaceholdersAndKeepTheActualErrorInTheirTooltip()
+    {
+        var account = PendingAccount(1);
+        var item = account.Items["item:0"];
+        item.ColumnsError = "Organization OAuth access denied";
+        var row = new ItemRow(item, account);
+        foreach (var value in new[] { row.Labels, row.IssueType, row.Milestone, row.Priority, row.Effort })
+            Assert.AreEqual("—", value);
+        Assert.Contains("Column values could not be loaded", row.ColumnMetadataStatus);
+        Assert.Contains(item.ColumnsError, row.ColumnMetadataStatus);
+
+        item.ColumnMetadata = new(["cached"], "Bug", "Next", [], false, "Enable project access");
+        row.Update(item, account);
+        Assert.AreEqual("cached", row.Labels);
+        Assert.AreEqual("—", row.Priority);
+        Assert.AreEqual("—", row.Effort);
+    }
+
+    [TestMethod]
     public void OptionalColumnsNotifyAndQualifyValuesFromMultipleProjects()
     {
         var account = PendingAccount(1);

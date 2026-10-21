@@ -48,6 +48,8 @@ Right-click a table header, or open **View → Columns**, to show or hide column
 
 Optional metadata is fetched in batches only when optional columns are visible, cached for 30 minutes, and updated by manual refresh. Missing permissions or failed requests retain cached values and expose error details in cell tooltips.
 
+If an organization's OAuth app restrictions block standard metadata, public issue fields are retried through GitHub's public API without credentials. Inaccessible values use a dash with the failure explained in the tooltip; hiding columns cancels their pending loads without showing a global error banner.
+
 ### Describe it instead of writing it
 
 With a supported on-device Windows AI model, describe what you want to follow in plain language and let GitHubToDo draft the search. It checks the generated query against GitHub and can retry when validation fails. You can inspect the query, edit it, and preview the results before saving.
@@ -110,6 +112,8 @@ winapp run .\src\GitHubToDo\GitHubToDo.csproj --arch x64 -p Platform=x64 --no-bu
 ```
 
 For Windows on Arm, use `Platform=ARM64` and `--arch arm64`.
+
+Local builds appear as **GitHubToDo - Dev** in the Start menu. The official release workflow stamps the display name back to **GitHubToDo**.
 
 Source builds need your own [GitHub OAuth app](https://github.com/settings/developers) with **Device Flow** enabled. Enter its public client ID in Settings; no client secret is needed.
 
