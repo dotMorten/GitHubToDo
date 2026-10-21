@@ -4,7 +4,12 @@
 
 An inbox for the issues, pull requests, and reviews that need your attention. GitHubToDo brings your GitHub searches into a native Windows app, remembers what you've read, and helps you pick up where you left off.
 
-**[Download for Windows](https://github.com/dotMorten/GitHubToDo/releases/latest)** · [Report a bug or suggest a feature](https://github.com/dotMorten/GitHubToDo/issues)
+**[Install for x64 (Intel / AMD)](https://github.com/dotMorten/GitHubToDo/releases/latest/download/GitHubToDo_x64.appinstaller)**
+
+**[Install for ARM64 (Snapdragon / Windows on Arm)](https://github.com/dotMorten/GitHubToDo/releases/latest/download/GitHubToDo_arm64.appinstaller)**
+
+[Report a bug or suggest a feature](https://github.com/dotMorten/GitHubToDo/issues)
+
 
 ![GitHubToDo showing saved searches, unread issues, and a discussion with an on-device AI catch-up summary](art/inbox.png)
 
@@ -35,6 +40,14 @@ Start with items involving you, your pull requests, reviews requested from you, 
 
 The query builder includes a searchable qualifier reference and a live results preview, so you can see what you're about to track before saving it.
 
+### Choose your columns
+
+Right-click a table header, or open **View → Columns**, to show or hide columns. The existing columns remain the defaults; **Labels**, **Type**, **Milestone**, **Priority**, and **Effort** are optional. **Type** is the GitHub issue type (such as Bug, Feature, or Task), not the issue/pull-request state icon. Title always remains visible. Column choices survive restart, and **Reset table layout** restores the defaults.
+
+**Priority** and **Effort** come from GitHub Projects fields with those exact names. If an item belongs to multiple projects, values include the project name so conflicting values remain distinguishable. To authorize project access, sign out, enable **GitHub Projects** in Settings, and sign in again to grant `read:project`. This is separate from private-repository access.
+
+Optional metadata is fetched in batches only when optional columns are visible, cached for 30 minutes, and updated by manual refresh. Missing permissions or failed requests retain cached values and expose error details in cell tooltips.
+
 ### Describe it instead of writing it
 
 With a supported on-device Windows AI model, describe what you want to follow in plain language and let GitHubToDo draft the search. It checks the generated query against GitHub and can retry when validation fails. You can inspect the query, edit it, and preview the results before saving.
@@ -64,6 +77,8 @@ Private repositories are optional. Enable private access when signing in if you 
 ### Automatic app updates
 
 Starting with v0.1.3, Windows App Installer checks for new **stable releases** on launch and periodically in the background (normally every eight hours). Checks are silent and don't block launch; an update may take effect the next time you open the app. Windows settings, organization policy, network availability, and whether the app is running can affect when updates are applied. Prereleases aren't delivered through this channel.
+
+GitHubToDo also checks its registered App Installer feed at startup and sends a Windows notification when an update is available. Close and reopen the app to let Windows apply it; installation timing still depends on Windows settings. After an upgrade, a separate notification confirms the installed version. Clicking either notification opens the latest release page. These notifications follow your Windows notification settings; development/demo builds and installations without an App Installer feed do not check or notify.
 
 Use the `.appinstaller` download above to enroll in automatic updates. Stable-release `.msix` files also embed the same update configuration for direct installs on supported Windows versions (Windows 11); the `.appinstaller` route is recommended. An older MSIX installation isn't automatically enrolled: open the architecture-matching `.appinstaller` once to enroll. The update keeps your local data as long as the package identity and publisher remain unchanged.
 

@@ -21,6 +21,7 @@
     <Compile Include="..\..\src\GitHubToDo\ViewModels\WorkspaceRows.cs" Link="ViewModels\WorkspaceRows.cs" />
     <Compile Include="..\..\src\GitHubToDo\Services\LocalAiSession.cs" Link="Services\LocalAiSession.cs" />
     <Compile Include="..\..\src\GitHubToDo\Services\LocalAiErrors.cs" Link="Services\LocalAiErrors.cs" />
+    <Compile Include="..\..\src\GitHubToDo\Services\AppUpdateNotification.cs" Link="Services\AppUpdateNotification.cs" />
   </ItemGroup>
 
 </Project>

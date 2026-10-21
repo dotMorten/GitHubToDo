@@ -32,7 +32,7 @@ internal sealed class FakeHandler(Func<HttpRequestMessage, CancellationToken, Ta
     }
 }
 
-internal sealed class FakeClient : IGitHubClient, IActivityMetadataClient
+internal sealed class FakeClient : IGitHubClient, IActivityMetadataClient, IItemColumnClient
 {
     public GitHubUser User { get; set; } = new("1", "viewer");
     public Func<string, CancellationToken, Task<SearchResult>>? Search { get; set; }
@@ -40,6 +40,17 @@ internal sealed class FakeClient : IGitHubClient, IActivityMetadataClient
     public Func<TrackedItem, ActivityMetadata>? Metadata { get; set; }
     public int ActivityCalls { get; private set; }
     public int MetadataCalls { get; private set; }
+    public Func<TrackedItem, bool, BatchResult<ItemColumnMetadata>>? Columns { get; set; }
+    public List<string[]> ColumnBatches { get; } = [];
+    public Task<IReadOnlyDictionary<string, BatchResult<ItemColumnMetadata>>> GetColumnMetadataBatchAsync(
+        IReadOnlyList<TrackedItem> items, bool includeProjects, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ColumnBatches.Add(items.Select(item => item.Id).ToArray());
+        return Task.FromResult<IReadOnlyDictionary<string, BatchResult<ItemColumnMetadata>>>(items.ToDictionary(
+            item => item.Id, item => Columns?.Invoke(item, includeProjects) ??
+                new BatchResult<ItemColumnMetadata>(new(["bug"], "Bug", "v1", [], includeProjects), null)));
+    }
     public Task<IReadOnlyDictionary<string, BatchResult<ActivityMetadata>>> GetActivityMetadataBatchAsync(
         IReadOnlyList<TrackedItem> items, CancellationToken cancellationToken)
     {

@@ -8,11 +8,16 @@ public sealed class DeviceFlowAuthenticator(HttpClient http, TimeProvider? timeP
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
     public async Task<DeviceCode> RequestCodeAsync(string clientId, bool includePrivate, CancellationToken ct)
+        => await RequestCodeAsync(clientId, includePrivate, includeProjects: false, ct);
+
+    public async Task<DeviceCode> RequestCodeAsync(string clientId, bool includePrivate, bool includeProjects, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(clientId))
             throw new ArgumentException("Configure your GitHub OAuth application's client ID in Settings first.");
         using var response = await PostAsync("https://github.com/login/device/code",
-            new() { ["client_id"] = clientId.Trim(), ["scope"] = includePrivate ? "repo" : "" }, ct);
+            new() { ["client_id"] = clientId.Trim(),
+                ["scope"] = string.Join(" ", new[] { includePrivate ? "repo" : null, includeProjects ? "read:project" : null }
+                    .Where(scope => scope is not null)) }, ct);
         ThrowOAuthError(response.RootElement);
         var root = response.RootElement;
         var uri = new Uri(root.GetProperty("verification_uri").GetString()!);

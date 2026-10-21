@@ -38,7 +38,15 @@ public sealed class TrackedItem
     public DateTimeOffset? MetadataCheckedAt { get; set; }
     public string? MetadataError { get; set; }
     public string? ActivityError { get; set; }
+    public ItemColumnMetadata? ColumnMetadata { get; set; }
+    public DateTimeOffset? ColumnsCheckedAt { get; set; }
+    public string? ColumnsError { get; set; }
 }
+
+public sealed record ProjectColumnValue(string ProjectId, string Project, string? Priority, string? Effort);
+public sealed record ItemColumnMetadata(
+    IReadOnlyList<string> Labels, string? IssueType, string? Milestone,
+    IReadOnlyList<ProjectColumnValue> Projects, bool IncludesProjects, string? ProjectError = null);
 
 public sealed class SavedQuery
 {
@@ -95,6 +103,12 @@ public interface IActivityMetadataClient
 {
     Task<IReadOnlyDictionary<string, BatchResult<ActivityMetadata>>> GetActivityMetadataBatchAsync(
         IReadOnlyList<TrackedItem> items, CancellationToken cancellationToken);
+}
+
+public interface IItemColumnClient
+{
+    Task<IReadOnlyDictionary<string, BatchResult<ItemColumnMetadata>>> GetColumnMetadataBatchAsync(
+        IReadOnlyList<TrackedItem> items, bool includeProjects, CancellationToken cancellationToken);
 }
 
 public interface ICredentialStore

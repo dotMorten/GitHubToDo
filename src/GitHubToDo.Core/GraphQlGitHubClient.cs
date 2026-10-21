@@ -4,8 +4,8 @@ using static GitHubToDo.Core.GitHubHttp;
 
 namespace GitHubToDo.Core;
 
-public sealed class GraphQlGitHubClient(
-    HttpClient http, Func<CancellationToken, Task<string>> accessToken, LocalStore store) : IGitHubClient, IActivityMetadataClient
+public sealed partial class GraphQlGitHubClient(
+    HttpClient http, Func<CancellationToken, Task<string>> accessToken, LocalStore store) : IGitHubClient, IActivityMetadataClient, IItemColumnClient
 {
     private const string AuthorFields = "author { login ... on User { databaseId } ... on Bot { databaseId } }";
     private const string CommentFields = "id databaseId fullDatabaseId createdAt updatedAt body url " + AuthorFields;
@@ -422,7 +422,8 @@ public sealed class GraphQlGitHubClient(
     private static string? LegacyId(JsonElement node, string name) => node.TryGetProperty(name, out var value) ?
         value.ValueKind switch { JsonValueKind.Number => value.GetRawText(), JsonValueKind.String => value.GetString(), _ => null } : null;
     private static string? Text(JsonElement node, string name) =>
-        node.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        node.ValueKind == JsonValueKind.Object && node.TryGetProperty(name, out var value) &&
+        value.ValueKind == JsonValueKind.String ? value.GetString() : null;
     private static DateTimeOffset Date(JsonElement node, string name) => node.GetProperty(name).GetDateTimeOffset();
     private static DateTimeOffset? OptionalDate(JsonElement node, string name) =>
         node.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetDateTimeOffset() : null;

@@ -4,7 +4,7 @@ using GitHubToDo.Core;
 namespace GitHubToDo.Services;
 
 /// <summary>Explicit opt-in fixture. Compiled out of Release; never calls GitHub.</summary>
-internal sealed class DemoGitHubClient : IGitHubClient
+internal sealed class DemoGitHubClient : IGitHubClient, IItemColumnClient
 {
     internal static GitHubUser User { get; } = new("demo-viewer", "demo-user");
     private static readonly DateTimeOffset Published = new(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
@@ -87,6 +87,17 @@ internal sealed class DemoGitHubClient : IGitHubClient
             ]
         };
         return Task.FromResult(activities);
+    }
+
+    public Task<IReadOnlyDictionary<string, BatchResult<ItemColumnMetadata>>> GetColumnMetadataBatchAsync(
+        IReadOnlyList<TrackedItem> items, bool includeProjects, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult<IReadOnlyDictionary<string, BatchResult<ItemColumnMetadata>>>(items.ToDictionary(item => item.Id,
+            item => new BatchResult<ItemColumnMetadata>(new(
+                item.IsPullRequest ? ["enhancement", "needs review"] : ["bug", "triage"],
+                item.IsPullRequest ? null : "Bug", "Next release",
+                [new("demo-project", "demo/Roadmap (#1)", "P1", "3")], true), null)));
     }
 }
 #endif

@@ -152,6 +152,18 @@ public sealed class ItemRow : ObservableObject
     private int? _unreadCommentCount;
     private bool _isFlagged;
     private string _followUpStatus = "";
+    private string _labels = "";
+    private string _issueType = "";
+    private string _milestone = "";
+    private string _priority = "";
+    private string _effort = "";
+    private string _columnMetadataStatus = "";
+    public string Labels => _labels;
+    public string IssueType => _issueType;
+    public string Milestone => _milestone;
+    public string Priority => _priority;
+    public string Effort => _effort;
+    public string ColumnMetadataStatus => _columnMetadataStatus;
     public ObservableCollection<ActivityRow> DiscussionActivities { get; } = [];
     public ObservableCollection<ActivityRow> UnreadActivities { get; } = [];
     public string UnreadSummary => _unreadSummary;
@@ -239,6 +251,19 @@ public sealed class ItemRow : ObservableObject
     public void Update(TrackedItem item, AccountSnapshot account)
     {
         SetProperty(ref _item, item, nameof(Item));
+        var columns = item.ColumnMetadata;
+        var missing = item.ColumnsError is null ? "…" : "Unavailable";
+        SetProperty(ref _labels, columns is null ? missing :
+            columns.Labels.Count == 0 ? "—" : string.Join(", ", columns.Labels), nameof(Labels));
+        SetProperty(ref _issueType, columns is null ? missing : columns.IssueType ?? "—", nameof(IssueType));
+        SetProperty(ref _milestone, columns is null ? missing : columns.Milestone ?? "—", nameof(Milestone));
+        SetProperty(ref _priority, ProjectColumn(columns, value => value.Priority, missing), nameof(Priority));
+        SetProperty(ref _effort, ProjectColumn(columns, value => value.Effort, missing), nameof(Effort));
+        SetProperty(ref _columnMetadataStatus,
+            $"{Labels}\nType: {IssueType}\nMilestone: {Milestone}\nPriority: {Priority}\nEffort: {Effort}\n" +
+            (item.ColumnsError ?? columns?.ProjectError ??
+                (item.ColumnsCheckedAt is { } checkedAt ? $"Columns checked {checkedAt.ToLocalTime():g}" : "Column metadata not loaded.")),
+            nameof(ColumnMetadataStatus));
         SetProperty(ref _kind, item.IsPullRequest ? "PR" : "Issue", nameof(Kind));
         SetProperty(ref _repositoryNumber, $"{item.Repository} #{item.Number}", nameof(RepositoryNumber));
         if (SetProperty(ref _author, $"@{item.AuthorLogin ?? "unknown"}", nameof(Author))) OnPropertyChanged(nameof(AuthorName));
@@ -315,6 +340,17 @@ public sealed class ItemRow : ObservableObject
         {
             OnPropertyChanged(nameof(AccessibleName));
         }
+
+    }
+
+    private static string ProjectColumn(ItemColumnMetadata? metadata, Func<ProjectColumnValue, string?> value, string missing)
+    {
+        if (metadata is null) return missing;
+        if (!metadata.IncludesProjects) return metadata.ProjectError is null ? "Project access required" : "Unavailable";
+        var values = metadata.Projects.Where(project => !string.IsNullOrWhiteSpace(value(project)))
+            .OrderBy(project => project.Project, StringComparer.CurrentCultureIgnoreCase)
+            .Select(project => metadata.Projects.Count > 1 ? $"{project.Project}: {value(project)}" : value(project));
+        return string.Join("; ", values) is { Length: > 0 } text ? text : "—";
     }
 }
 
@@ -420,6 +456,11 @@ public sealed class WorkspaceRows
             "Unread" => By(rows, row => row.UnreadCommentCount ?? -1, Comparer<int>.Default),
             "Repository" => By(rows, row => row.Item.Repository, comparer).ThenBy(row => row.Item.Number),
             "Author" => By(rows, row => row.Author, comparer),
+            "Labels" => By(rows, row => row.Labels, comparer),
+            "IssueType" => By(rows, row => row.IssueType, comparer),
+            "Milestone" => By(rows, row => row.Milestone, comparer),
+            "Priority" => By(rows, row => row.Priority, comparer),
+            "Effort" => By(rows, row => row.Effort, comparer),
             "State" => By(rows, row => row.StateKey, comparer),
             "Flag" => By(rows, row => row.HasFollowUps ? 1 : 0, Comparer<int>.Default),
             // Items without relevant activity always follow dated items.
@@ -439,6 +480,11 @@ public sealed class WorkspaceRows
         row.Title.Contains(filter, StringComparison.CurrentCultureIgnoreCase) ||
         row.RepositoryNumber.Contains(filter, StringComparison.CurrentCultureIgnoreCase) ||
         row.Author.Contains(filter, StringComparison.CurrentCultureIgnoreCase) ||
+        row.Labels.Contains(filter, StringComparison.CurrentCultureIgnoreCase) ||
+        row.IssueType.Contains(filter, StringComparison.CurrentCultureIgnoreCase) ||
+        row.Milestone.Contains(filter, StringComparison.CurrentCultureIgnoreCase) ||
+        row.Priority.Contains(filter, StringComparison.CurrentCultureIgnoreCase) ||
+        row.Effort.Contains(filter, StringComparison.CurrentCultureIgnoreCase) ||
         row.Subtitle.Contains(filter, StringComparison.CurrentCultureIgnoreCase);
 
 

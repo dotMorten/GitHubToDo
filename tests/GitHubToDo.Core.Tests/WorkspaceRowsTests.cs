@@ -8,6 +8,54 @@ namespace GitHubToDo.Core.Tests;
 [TestClass]
 public sealed class WorkspaceRowsTests
 {
+    [TestMethod]
+    public void OptionalColumnsNotifyAndQualifyValuesFromMultipleProjects()
+    {
+        var account = PendingAccount(1);
+        var item = account.Items["item:0"];
+        var row = new ItemRow(item, account);
+        Assert.AreEqual("…", row.Labels);
+        var changed = new List<string?>();
+        row.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        item.ColumnMetadata = new(["bug", "triage"], "Bug", "v1",
+            [new("a", "org/Plan (#1)", "P1", "3"), new("b", "org/Team (#2)", "P2", "5")], true);
+        row.Update(item, account);
+        Assert.AreEqual("bug, triage", row.Labels);
+        Assert.AreEqual("Bug", row.IssueType);
+        Assert.AreEqual("v1", row.Milestone);
+        Assert.AreEqual("org/Plan (#1): P1; org/Team (#2): P2", row.Priority);
+        Assert.AreEqual("org/Plan (#1): 3; org/Team (#2): 5", row.Effort);
+        foreach (var property in new[] { "Labels", "IssueType", "Milestone", "Priority", "Effort", "ColumnMetadataStatus" })
+            Assert.Contains(property, changed);
+        item.ColumnMetadata = new([], null, null, [], false);
+        row.Update(item, account);
+        Assert.AreEqual("—", row.Labels);
+        Assert.AreEqual("—", row.IssueType);
+        Assert.AreEqual("—", row.Milestone);
+        Assert.AreEqual("Project access required", row.Priority);
+    }
+
+    [TestMethod]
+    [DataRow("Labels")]
+    [DataRow("IssueType")]
+    [DataRow("Milestone")]
+    [DataRow("Priority")]
+    [DataRow("Effort")]
+    public void OptionalColumnsSortWithoutReplacingRows(string column)
+    {
+        var account = PendingAccount(2);
+        account.Items["item:0"].ColumnMetadata = new(["Zebra"], "Zebra", "Zebra", [new("p", "Plan", "Zebra", "Zebra")], true);
+        account.Items["item:1"].ColumnMetadata = new(["Alpha"], "Alpha", "Alpha", [new("p", "Plan", "Alpha", "Alpha")], true);
+        var rows = new WorkspaceRows();
+        rows.UpdateItems(account.Queries[0], account);
+        var first = rows.Items.Single(row => row.Id == "item:0");
+        rows.SetSort(column, false);
+        Assert.AreEqual("item:1", rows.Items[0].Id);
+        Assert.AreSame(first, rows.Items[1]);
+        rows.SetSort(column, true);
+        Assert.AreSame(first, rows.Items[0]);
+    }
+
     private static AccountSnapshot PendingAccount(int count = 30)
     {
         var account = new AccountSnapshot { User = new("viewer", "viewer") };

@@ -7,6 +7,7 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
     private static readonly TimeSpan SearchOverlap = TimeSpan.FromMinutes(5);
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private readonly SemaphoreSlim mutationGate = new(1);
+    private readonly SemaphoreSlim columnsGate = new(1);
     private readonly object refreshGate = new();
     private Task? refreshTask;
     private int refreshGeneration = -1;
@@ -18,6 +19,8 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
     public string Progress { get; private set; } = "Sign in to start monitoring.";
     public string? PreferredQueryId { get; set; }
     public string? PreferredItemId { get; set; }
+    public bool ColumnMetadataEnabled { get; set; }
+    public bool IncludeProjectFields { get; set; }
     public event Action? Changed;
 
     public async Task OpenAsync(GitHubUser user, CancellationToken ct = default)
@@ -388,6 +391,9 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
                             incoming.LoadedActivityMetadata = existing.LoadedActivityMetadata;
                             incoming.MetadataCheckedAt = existing.MetadataCheckedAt;
                             incoming.MetadataError = existing.MetadataError;
+                            incoming.ColumnMetadata = existing.ColumnMetadata;
+                            incoming.ColumnsCheckedAt = existing.ColumnsCheckedAt;
+                            incoming.ColumnsError = existing.ColumnsError;
                         }
                         if (incoming.ActivityMetadata is not null)
                         {
@@ -526,8 +532,65 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
             if (PauseForBatchErrors(results.Values.Select(result => result.Error).ToArray(), startGeneration))
                 return;
         }
+        failures += await RefreshColumnsAsync(queryId, full || !reconcileDue, ct);
         Report(failures == 0 ? $"Checked at {clock.GetLocalNow():t}. Refresh/F5 checks the active view; full reconciliation runs every 30 minutes." :
             $"Refresh finished with {failures} error(s). Some cached results are stale.", startGeneration);
+    }
+
+    public async Task<int> RefreshColumnsAsync(string? queryId, bool force = false, CancellationToken ct = default)
+    {
+        if (!ColumnMetadataEnabled || client is not IItemColumnClient columnClient || Account is null) return 0;
+        var startGeneration = generation;
+        await columnsGate.WaitAsync(ct);
+        try
+        {
+            if (generation != startGeneration || Account is null || !ColumnMetadataEnabled) return 0;
+            var includeProjects = IncludeProjectFields;
+            var now = clock.GetUtcNow();
+            var ids = queryId == FollowUpsQueryId
+                ? Account.Items.Values.Where(item => item.HasFollowUps).Select(item => item.Id)
+                : Account.Queries.Where(query => queryId is null || query.Id == queryId).SelectMany(query => query.ItemIds);
+            var items = ids.Distinct().Where(Account.Items.ContainsKey).Select(id => Account.Items[id])
+                .Where(item => force || item.ColumnsCheckedAt is null || item.ColumnsCheckedAt > now ||
+                    now - item.ColumnsCheckedAt >= FullRefreshInterval ||
+                    includeProjects && item.ColumnMetadata?.IncludesProjects != true && item.ColumnMetadata?.ProjectError is null)
+                .ToArray();
+            var failures = 0;
+            foreach (var batch in items.Chunk(GitHubBatching.ItemsPerRequest))
+            {
+                if (generation != startGeneration || !ColumnMetadataEnabled) return failures;
+                Report($"Loading optional columns for {batch.Length} items...", startGeneration);
+                IReadOnlyDictionary<string, BatchResult<ItemColumnMetadata>> results;
+                try { results = await columnClient.GetColumnMetadataBatchAsync(batch, includeProjects, ct); }
+                catch (Exception error) when (BatchErrors.IsRecoverable(error, ct))
+                { results = batch.ToDictionary(item => item.Id, _ => new BatchResult<ItemColumnMetadata>(null, error)); }
+                await MutateAsync(account =>
+                {
+                    foreach (var item in batch)
+                    {
+                        if (!account.Items.TryGetValue(item.Id, out var target)) continue;
+                        var result = results.TryGetValue(item.Id, out var value) ? value :
+                            throw new InvalidDataException("The column batch did not return a result for every item.");
+                        target.ColumnsCheckedAt = now;
+                        target.ColumnsError = result.Error?.Message;
+                        if (result.Error is not null) failures++;
+                        else
+                        {
+                            target.ColumnMetadata = result.Value ??
+                                throw new InvalidDataException("The column batch returned an empty result.");
+                            if (target.ColumnMetadata.ProjectError is not null) failures++;
+                        }
+                    }
+                }, ct, startGeneration);
+                if (PauseForBatchErrors(results.Values.Select(result => result.Error).ToArray(), startGeneration))
+                    return failures;
+            }
+            if (items.Length > 0)
+                Report(failures == 0 ? $"Columns checked at {clock.GetLocalNow():t}." :
+                    $"Columns finished with {failures} error(s). Cached values are retained; hover a value for details.", startGeneration);
+            return failures;
+        }
+        finally { columnsGate.Release(); }
     }
 
     private static DateTimeOffset? UpdateAnchor(SavedQuery query) =>

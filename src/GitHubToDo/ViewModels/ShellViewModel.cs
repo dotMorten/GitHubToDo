@@ -69,6 +69,26 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     /// <summary>True for official builds with the OAuth client ID baked in; the client ID setting is then hidden.</summary>
     public bool HasBuiltInClientId { get; } = Services.BuildInfo.ClientId is not null;
     [ObservableProperty] public partial bool IncludePrivate { get; set; }
+    [ObservableProperty] public partial bool IncludeProjects { get; set; }
+    private bool _projectColumnsVisible;
+
+    public async Task ConfigureColumnsAsync(bool visible, bool projectsVisible)
+    {
+        _workspace.ColumnMetadataEnabled = visible;
+        _projectColumnsVisible = projectsVisible;
+        _workspace.IncludeProjectFields = projectsVisible && IncludeProjects;
+        await LoadColumnMetadataAsync();
+    }
+
+    private Task LoadColumnMetadataAsync() => IsSignedIn && SelectedQuery is { } query && _workspace.ColumnMetadataEnabled
+        ? RunAsync(async () =>
+        {
+            var failures = await _workspace.RefreshColumnsAsync(query.Id, ct: _session.Token);
+            if (failures > 0) Error = "Some optional column values could not be refreshed. Hover a column value for details.";
+            UpdateProjection();
+        }) : Task.CompletedTask;
+
+    partial void OnIncludeProjectsChanged(bool value) => _workspace.IncludeProjectFields = _projectColumnsVisible && value;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(MarkReadCommand), nameof(MarkUnreadCommand), nameof(MarkPreviewReadCommand), nameof(MarkPreviewUnreadCommand), nameof(FlagSelectionCommand), nameof(OpenBrowserCommand), nameof(ToggleItemFollowUpCommand), nameof(ClearFollowUpsCommand))]
     public partial bool IsSignedIn { get; set; }
@@ -192,6 +212,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
             CheckLocalAi();
             ClientId = Services.BuildInfo.ClientId ?? await _store.GetSettingAsync("oauth-client-id") ?? "";
             IncludePrivate = await _store.GetSettingAsync("oauth-private") == "true";
+            IncludeProjects = await _store.GetSettingAsync("oauth-projects") == "true";
 #if DEBUG
             if (_isDemo)
             {
@@ -257,6 +278,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     {
         if (!HasBuiltInClientId) await _store.SetSettingAsync("oauth-client-id", ClientId.Trim());
         await _store.SetSettingAsync("oauth-private", IncludePrivate ? "true" : "false");
+        await _store.SetSettingAsync("oauth-projects", IncludeProjects ? "true" : "false");
         Status = "Configuration saved. Scope changes take effect on your next sign-in.";
     });
 
@@ -279,12 +301,13 @@ public partial class ShellViewModel : ObservableObject, IDisposable
             var clientId = ClientId.Trim();
             if (!HasBuiltInClientId) await _store.SetSettingAsync("oauth-client-id", clientId);
             await _store.SetSettingAsync("oauth-private", IncludePrivate ? "true" : "false");
+            await _store.SetSettingAsync("oauth-projects", IncludeProjects ? "true" : "false");
             _device = CancellationTokenSource.CreateLinkedTokenSource(_session.Token);
             var ct = _device.Token;
             IsDeviceFlow = true;
             try
             {
-                var code = await _auth.RequestCodeAsync(clientId, IncludePrivate, ct);
+                var code = await _auth.RequestCodeAsync(clientId, IncludePrivate, IncludeProjects, ct);
                 _verificationUri = code.VerificationUri;
                 DeviceMessage = $"Enter code {code.UserCode} at {code.VerificationUri}. Expires in {code.ExpiresIn / 60} minutes. Waiting for authorization…";
                 var token = await _auth.PollAsync(clientId, code, ct);
@@ -701,6 +724,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     {
         _workspace.PreferredQueryId = value?.Id;
         UpdateItems();
+        _ = LoadColumnMetadataAsync();
     }
     partial void OnSelectedItemChanged(ItemRow? value)
     {

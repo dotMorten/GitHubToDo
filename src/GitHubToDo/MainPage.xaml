@@ -228,11 +228,6 @@
                                         <MenuFlyoutSeparator />
                                         <MenuFlyoutSubItem x:Name="ColumnsMenu" Text="Columns" AutomationProperties.AutomationId="ColumnsMenu">
                                             <MenuFlyoutSubItem.Icon><FontIcon Glyph="&#xE8FD;" /></MenuFlyoutSubItem.Icon>
-                                            <ToggleMenuFlyoutItem Text="Unread" Tag="Unread" Click="ColumnToggle_Click" AutomationProperties.AutomationId="ColumnToggle_Unread" />
-                                            <ToggleMenuFlyoutItem Text="Repository" Tag="Repository" Click="ColumnToggle_Click" AutomationProperties.AutomationId="ColumnToggle_Repository" />
-                                            <ToggleMenuFlyoutItem Text="Author" Tag="Author" Click="ColumnToggle_Click" AutomationProperties.AutomationId="ColumnToggle_Author" />
-                                            <ToggleMenuFlyoutItem Text="Updated" Tag="Updated" Click="ColumnToggle_Click" AutomationProperties.AutomationId="ColumnToggle_Updated" />
-                                            <ToggleMenuFlyoutItem Text="Flag" Tag="Flag" Click="ColumnToggle_Click" AutomationProperties.AutomationId="ColumnToggle_Flag" />
                                         </MenuFlyoutSubItem>
                                         <MenuFlyoutItem Text="Reset table layout" Click="ResetTableLayout_Click" AutomationProperties.AutomationId="ResetTableLayout">
                                             <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE72C;" /></MenuFlyoutItem.Icon>
@@ -275,10 +270,10 @@
                                                    GridLinesVisibility="Horizontal" HeadersVisibility="Column" Density="Standard"
                                                    SelectionChanged="ItemList_SelectionChanged" Sorting="ItemList_Sorting"
                                                    RightTapped="ItemList_RightTapped" PreviewKeyDown="ItemList_PreviewKeyDown"
-                                                   AutomationProperties.HelpText="Ctrl-click toggles rows; Shift-click or Shift+arrow extends selection. Ctrl+A selects all rows. Drag column edges to resize; click a header to sort."
+                                                   AutomationProperties.HelpText="Ctrl-click toggles rows; Shift-click or Shift+arrow extends selection. Ctrl+A selects all rows. Drag column edges to resize; click a header to sort; right-click a header to choose columns."
                                                    AutomationProperties.AutomationId="ItemList" AutomationProperties.Name="Issues and pull requests">
                                     <tabular:TableView.Columns>
-                                        <tabular:TableViewTemplateColumn x:Name="StateColumn" Header="Type" HeaderToolTip="Issue or pull request, and its state"
+                                        <tabular:TableViewTemplateColumn x:Name="StateColumn" Header="State" HeaderToolTip="Issue or pull request, and its state"
                                                                          Width="64" MinWidth="56" SortMemberPath="State">
                                             <tabular:TableViewTemplateColumn.CellTemplate>
                                                 <DataTemplate x:DataType="vm:ItemRow">
@@ -364,6 +359,49 @@
                                                     <FontIcon Glyph="&#xE7C1;" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                               Foreground="{ThemeResource FollowUpFlagBrush}" AutomationProperties.AccessibilityView="Raw"
                                                               Visibility="{x:Bind local:MainPage.Visible(HasFollowUps), Mode=OneWay}" />
+                                                </DataTemplate>
+                                            </tabular:TableViewTemplateColumn.CellTemplate>
+                                        </tabular:TableViewTemplateColumn>
+                                        <tabular:TableViewTemplateColumn Header="Labels" Width="200" MinWidth="100" SortMemberPath="Labels" Visibility="Collapsed">
+                                            <tabular:TableViewTemplateColumn.CellTemplate>
+                                                <DataTemplate x:DataType="vm:ItemRow">
+                                                    <TextBlock Text="{x:Bind Labels, Mode=OneWay}" Margin="8,0" VerticalAlignment="Center"
+                                                               TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind ColumnMetadataStatus, Mode=OneWay}" />
+                                                </DataTemplate>
+                                            </tabular:TableViewTemplateColumn.CellTemplate>
+                                        </tabular:TableViewTemplateColumn>
+                                        <tabular:TableViewTemplateColumn Header="Type" HeaderToolTip="GitHub issue type, such as Bug, Feature, or Task"
+                                                                         Width="120" MinWidth="80" SortMemberPath="IssueType" Visibility="Collapsed">
+                                            <tabular:TableViewTemplateColumn.CellTemplate>
+                                                <DataTemplate x:DataType="vm:ItemRow">
+                                                    <TextBlock Text="{x:Bind IssueType, Mode=OneWay}" Margin="8,0" VerticalAlignment="Center"
+                                                               TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind ColumnMetadataStatus, Mode=OneWay}" />
+                                                </DataTemplate>
+                                            </tabular:TableViewTemplateColumn.CellTemplate>
+                                        </tabular:TableViewTemplateColumn>
+                                        <tabular:TableViewTemplateColumn Header="Milestone" Width="160" MinWidth="100" SortMemberPath="Milestone" Visibility="Collapsed">
+                                            <tabular:TableViewTemplateColumn.CellTemplate>
+                                                <DataTemplate x:DataType="vm:ItemRow">
+                                                    <TextBlock Text="{x:Bind Milestone, Mode=OneWay}" Margin="8,0" VerticalAlignment="Center"
+                                                               TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind ColumnMetadataStatus, Mode=OneWay}" />
+                                                </DataTemplate>
+                                            </tabular:TableViewTemplateColumn.CellTemplate>
+                                        </tabular:TableViewTemplateColumn>
+                                        <tabular:TableViewTemplateColumn Header="Priority" HeaderToolTip="The Priority custom field from accessible GitHub Projects"
+                                                                         Width="160" MinWidth="100" SortMemberPath="Priority" Visibility="Collapsed">
+                                            <tabular:TableViewTemplateColumn.CellTemplate>
+                                                <DataTemplate x:DataType="vm:ItemRow">
+                                                    <TextBlock Text="{x:Bind Priority, Mode=OneWay}" Margin="8,0" VerticalAlignment="Center"
+                                                               TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind ColumnMetadataStatus, Mode=OneWay}" />
+                                                </DataTemplate>
+                                            </tabular:TableViewTemplateColumn.CellTemplate>
+                                        </tabular:TableViewTemplateColumn>
+                                        <tabular:TableViewTemplateColumn Header="Effort" HeaderToolTip="The Effort custom field from accessible GitHub Projects"
+                                                                         Width="160" MinWidth="100" SortMemberPath="Effort" Visibility="Collapsed">
+                                            <tabular:TableViewTemplateColumn.CellTemplate>
+                                                <DataTemplate x:DataType="vm:ItemRow">
+                                                    <TextBlock Text="{x:Bind Effort, Mode=OneWay}" Margin="8,0" VerticalAlignment="Center"
+                                                               TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind ColumnMetadataStatus, Mode=OneWay}" />
                                                 </DataTemplate>
                                             </tabular:TableViewTemplateColumn.CellTemplate>
                                         </tabular:TableViewTemplateColumn>
@@ -747,6 +785,12 @@
                                     <ToggleSwitch IsOn="{x:Bind ViewModel.IncludePrivate, Mode=TwoWay}"
                                                   IsEnabled="{x:Bind local:MainPage.CanConfigure(ViewModel.IsSignedIn, ViewModel.IsDeviceFlow), Mode=OneWay}"
                                                   AutomationProperties.Name="Request private repository access (repo scope)" AutomationProperties.AutomationId="PrivateScope" />
+                                </toolkit:SettingsCard>
+                                <toolkit:SettingsCard Header="GitHub Projects"
+                                                      Description="Request read:project access to show Priority and Effort custom fields. Sign out and sign in again after changing access. Only projects your account can access are shown.">
+                                    <ToggleSwitch IsOn="{x:Bind ViewModel.IncludeProjects, Mode=TwoWay}"
+                                                  IsEnabled="{x:Bind local:MainPage.CanConfigure(ViewModel.IsSignedIn, ViewModel.IsDeviceFlow), Mode=OneWay}"
+                                                  AutomationProperties.Name="Request GitHub Projects read access" AutomationProperties.AutomationId="ProjectScope" />
                                 </toolkit:SettingsCard>
                                 <toolkit:SettingsCard ContentAlignment="Left">
                                     <StackPanel Orientation="Horizontal" Spacing="8">

@@ -652,6 +652,101 @@ public sealed class GraphQlGitHubClientTests
         Assert.AreEqual("complete", result[queries[1].Id].Value!.Items.Single().Id);
     }
 
+    [TestMethod]
+    public async Task ColumnLabelsPaginateAndDoNotRequestProjectScopesByDefault()
+    {
+        var client = Client((request, call) =>
+        {
+            Assert.DoesNotContain("projectItems", request.GetProperty("query").GetString()!);
+            if (call == 2) Assert.AreEqual("next", request.GetProperty("variables").GetProperty("a0").GetString());
+            return Response(new { n0 = ColumnNode(call == 1 ? ["bug"] : ["triage"], call == 1 ? "next" : null) });
+        });
+        var result = (await client.GetColumnMetadataBatchAsync([Tracked("a")], false, default))["a"];
+        Assert.IsNull(result.Error);
+        CollectionAssert.AreEqual(new[] { "bug", "triage" }, result.Value!.Labels.ToArray());
+        Assert.AreEqual("Bug", result.Value.IssueType);
+        Assert.AreEqual("v1", result.Value.Milestone);
+        Assert.IsFalse(result.Value.IncludesProjects);
+        Assert.HasCount(2, requests);
+    }
+
+    [TestMethod]
+    public async Task ProjectColumnsPaginateProjectsAndSupportSelectTextAndNumberValues()
+    {
+        var client = Client((request, call) => call == 1
+            ? Response(new { n0 = ColumnNode([]) })
+            : Response(new { p0 = new { __typename = "Issue", projectItems = Connection(
+                [new { project = new { id = $"project-{call}", title = "Roadmap", number = call, owner = new { login = "org" } },
+                    priority = call == 2 ? (object)new { __typename = "ProjectV2ItemFieldSingleSelectValue", name = "P1" }
+                        : new { __typename = "ProjectV2ItemFieldTextValue", text = "High" },
+                    effort = new { __typename = "ProjectV2ItemFieldNumberValue", number = 3 } }], call == 2 ? "more" : null) } }));
+        var result = (await client.GetColumnMetadataBatchAsync([Tracked("a")], true, default))["a"];
+        Assert.IsNull(result.Error);
+        Assert.IsTrue(result.Value!.IncludesProjects);
+        Assert.HasCount(2, result.Value.Projects);
+        Assert.AreEqual("org/Roadmap (#2)", result.Value.Projects[0].Project);
+        Assert.AreEqual("P1", result.Value.Projects[0].Priority);
+        Assert.AreEqual("High", result.Value.Projects[1].Priority);
+        Assert.AreEqual("3", result.Value.Projects[1].Effort);
+        Assert.AreEqual("more", requests[2].GetProperty("variables").GetProperty("a0").GetString());
+    }
+
+    [TestMethod]
+    public async Task MissingProjectScopeRetainsCachedProjectsWithoutBreakingStandardColumns()
+    {
+        var item = Tracked("a");
+        item.ColumnMetadata = new(["old"], "Old type", "Old milestone", [new("p", "org/Plan (#1)", "P2", "5")], true);
+        var client = Client((_, call) => call == 1 ? Response(new { n0 = ColumnNode(["bug"]) }) :
+            Response(null, new[] { new { type = "INSUFFICIENT_SCOPES", message = "Missing project access" } }));
+        var result = (await client.GetColumnMetadataBatchAsync([item], true, default))["a"];
+        Assert.IsNull(result.Error);
+        CollectionAssert.AreEqual(new[] { "bug" }, result.Value!.Labels.ToArray());
+        Assert.AreEqual("P2", result.Value.Projects.Single().Priority);
+        Assert.Contains("read:project", result.Value.ProjectError!);
+        Assert.Contains("sign in again", result.Value.ProjectError!);
+    }
+
+    [TestMethod]
+    public async Task FailedLaterLabelPageDoesNotPublishPartialColumnData()
+    {
+        var client = Client((_, call) => call == 1 ? Response(new { n0 = ColumnNode(["partial"], "next") }) :
+            Response(null, new[] { new { type = "FORBIDDEN", message = "No access" } }));
+        var result = (await client.GetColumnMetadataBatchAsync([Tracked("a")], false, default))["a"];
+        Assert.IsNotNull(result.Error);
+        Assert.IsNull(result.Value);
+    }
+
+    [TestMethod]
+    public async Task NullIssueTypeAndMilestoneAreValidForPullRequests()
+    {
+        var client = Client((_, _) => Response(new { n0 = new {
+            __typename = "PullRequest", milestone = (object?)null, labels = Connection([]) } }));
+        var result = (await client.GetColumnMetadataBatchAsync([Tracked("a", true)], false, default))["a"];
+        Assert.IsNull(result.Error);
+        Assert.IsNull(result.Value!.IssueType);
+        Assert.IsNull(result.Value.Milestone);
+        Assert.IsEmpty(result.Value.Labels);
+    }
+
+    [TestMethod]
+    [DataRow(HttpStatusCode.Unauthorized)]
+    [DataRow(HttpStatusCode.TooManyRequests)]
+    public async Task ProjectAuthenticationAndRateLimitsRemainTypedBatchErrors(HttpStatusCode status)
+    {
+        var client = Client((_, call) => call == 1 ? Response(new { n0 = ColumnNode([]) }) :
+            FakeHandler.Json("""{"message":"Access paused"}""", status));
+        var result = (await client.GetColumnMetadataBatchAsync([Tracked("a")], true, default))["a"];
+        Assert.IsInstanceOfType<GitHubException>(result.Error);
+        Assert.AreEqual((int)status, ((GitHubException)result.Error).StatusCode);
+        Assert.IsNull(result.Value, "Authentication and rate limits must reach refresh/session handling.");
+    }
+
+    private static object ColumnNode(string[] labels, string? cursor = null) => new
+    {
+        __typename = "Issue", issueType = new { name = "Bug" }, milestone = new { title = "v1" },
+        labels = Connection(labels.Select(name => (object)new { name }).ToArray(), cursor)
+    };
+
     private GraphQlGitHubClient Client(Func<JsonElement, int, HttpResponseMessage> respond)
     {
         http?.Dispose();

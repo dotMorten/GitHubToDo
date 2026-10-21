@@ -26,6 +26,25 @@ public sealed class OAuthTests
     }
 
     [TestMethod]
+    [DataRow(false, false, "")]
+    [DataRow(true, false, "repo")]
+    [DataRow(false, true, "read:project")]
+    [DataRow(true, true, "repo read:project")]
+    public async Task ProjectScopeIsRequestedOnlyWithExplicitConsent(bool includePrivate, bool includeProjects, string scopes)
+    {
+        using var http = new HttpClient(new FakeHandler(async (request, ct) =>
+        {
+            var form = Uri.UnescapeDataString((await request.Content!.ReadAsStringAsync(ct)).Replace("+", " "));
+            Assert.Contains("scope=" + scopes, form);
+            Assert.AreEqual(scopes, form.Split('&').Single(value => value.StartsWith("scope="))["scope=".Length..]);
+            return FakeHandler.Json("""
+                {"device_code":"test-code","user_code":"ABCD-EFGH","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}
+                """);
+        }));
+        await new DeviceFlowAuthenticator(http).RequestCodeAsync("client-id", includePrivate, includeProjects, default);
+    }
+
+    [TestMethod]
     public async Task PendingAndSlowDownHonorServerInterval()
     {
         var clock = new AdvancingClock();

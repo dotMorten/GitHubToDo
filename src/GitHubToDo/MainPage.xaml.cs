@@ -5,6 +5,7 @@ using GitHubToDo.Core;
 using GitHubToDo.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Controls.Tabular;
@@ -20,6 +21,8 @@ public sealed partial class MainPage : Page
     private bool _isNavigationRestoreQueued;
     private bool? _isNarrowNavigation;
     private bool _isDialogOpen;
+    private bool _hasCheckedAppUpdates;
+    private readonly CancellationTokenSource _appUpdatesCancellation = new();
     private readonly Dictionary<string, QueryNavigationEntry> _queryNavigation = [];
     private readonly NavigationViewItemHeader _savedSearchesHeader = new() { Content = "Saved searches" };
     private readonly NavigationViewItemSeparator _followUpSeparator = new();
@@ -76,6 +79,7 @@ public sealed partial class MainPage : Page
         ViewModel.UnreadRestored += RestoreUnreadPosition;
         Unloaded += (_, _) =>
         {
+            _appUpdatesCancellation.Cancel();
             ViewModel.QueriesChanged -= UpdateNavigation;
             ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
             ViewModel.Items.CollectionChanged -= Items_CollectionChanged;
@@ -147,8 +151,28 @@ public sealed partial class MainPage : Page
     {
         UpdateNavigationLayout(ActualWidth);
         App.Window.Closed += (_, _) => ViewModel.Dispose();
+        if (!_hasCheckedAppUpdates)
+        {
+            _hasCheckedAppUpdates = true;
+            App.Window.Closed += (_, _) => _appUpdatesCancellation.Cancel();
+            _ = CheckForAppUpdatesAsync();
+        }
         await ViewModel.InitializeAsync();
         UpdateNavigation();
+    }
+
+    private async Task CheckForAppUpdatesAsync()
+    {
+        try
+        {
+            await Services.AppUpdateService.CheckAsync(_appUpdatesCancellation.Token);
+        }
+        catch (OperationCanceledException) when (_appUpdatesCancellation.IsCancellationRequested) { }
+        catch (Exception error) when (error is System.Runtime.InteropServices.COMException or
+            IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            System.Diagnostics.Trace.TraceError($"GitHubToDo MSIX update notification failed: {error}");
+        }
     }
 
     private void UpdateNavigation()
@@ -451,6 +475,37 @@ public sealed partial class MainPage : Page
             ViewModel.SetItemSelection([row], row);
         }
         SynchronizeItemSelection();
+    }
+
+    private void ItemList_ContextRequested(UIElement sender, ContextRequestedEventArgs e)
+    {
+        if (FrameworkElementAutomationPeer.CreatePeerForElement(ItemList) is not { } tablePeer) return;
+        var names = NamedColumns().Select(entry => entry.Column.Header?.ToString()).ToHashSet();
+        var hasPosition = e.TryGetPosition(ItemList, out var point);
+        var bounds = tablePeer.GetBoundingRectangle();
+        var scale = ItemList.XamlRoot.RasterizationScale;
+        var screenPoint = new Windows.Foundation.Point(bounds.X + point.X * scale, bounds.Y + point.Y * scale);
+        // TableView's native headers are virtual automation containers, not XAML elements.
+        var header = FindHeaders(tablePeer).FirstOrDefault(peer =>
+            hasPosition ? peer.GetBoundingRectangle().Contains(screenPoint) : peer.HasKeyboardFocus());
+        if (header is null) return;
+        e.Handled = true;
+        ItemList.ContextFlyout.Hide();
+        UpdateViewMenu();
+        if (hasPosition) _headerColumnsMenu.ShowAt(ItemList, new FlyoutShowOptions { Position = point });
+        else _headerColumnsMenu.ShowAt(ItemList);
+
+        IEnumerable<AutomationPeer> FindHeaders(AutomationPeer parent)
+        {
+            foreach (var child in parent.GetChildren() ?? [])
+            {
+                var type = child.GetAutomationControlType();
+                if (type is AutomationControlType.Group or AutomationControlType.HeaderItem && names.Contains(child.GetName()))
+                    yield return child;
+                else if (type != AutomationControlType.DataItem)
+                    foreach (var descendant in FindHeaders(child)) yield return descendant;
+            }
+        }
     }
 
     private static ItemRow? RowFromSource(object? source)
@@ -861,9 +916,20 @@ public sealed partial class MainPage : Page
         finally { _isUpdatingItemSelection = false; }
     }
 
-    private const string TableLayoutKey = "ItemTableLayout";
+    private static string TableLayoutKey
+    {
+        get
+        {
+#if DEBUG
+            if (App.IsDemo && App.DemoProfile.Length > 0) return $"ItemTableLayout-demo-{App.DemoProfile}";
+#endif
+            return "ItemTableLayout";
+        }
+    }
     private bool _isTableLayoutReady;
     private readonly Dictionary<TableViewColumn, GridLength> _defaultColumnWidths = [];
+    private readonly Dictionary<TableViewColumn, Visibility> _defaultColumnVisibility = [];
+    private readonly MenuFlyout _headerColumnsMenu = new();
 
     private IEnumerable<(string Key, TableViewColumn Column)> NamedColumns() =>
         ItemList.Columns.Select(column => (column.SortMemberPath, column));
@@ -873,8 +939,19 @@ public sealed partial class MainPage : Page
         foreach (var column in ItemList.Columns)
         {
             _defaultColumnWidths[column] = column.Width;
+            _defaultColumnVisibility[column] = column.Visibility;
             column.CustomSortComparer = new ViewOrderComparer(this);
         }
+        PopulateColumnMenu(ColumnsMenu.Items, "ColumnToggle_");
+        PopulateColumnMenu(_headerColumnsMenu.Items, "HeaderColumnToggle_");
+        _headerColumnsMenu.Items.Add(new MenuFlyoutSeparator());
+        var reset = new MenuFlyoutItem { Text = "Reset table layout" };
+        AutomationProperties.SetAutomationId(reset, "HeaderResetTableLayout");
+        reset.Click += ResetTableLayout_Click;
+        _headerColumnsMenu.Items.Add(reset);
+        // TableView handles this routed event before the page's regular handlers.
+        ItemList.AddHandler(ContextRequestedEvent,
+            new Windows.Foundation.TypedEventHandler<UIElement, ContextRequestedEventArgs>(ItemList_ContextRequested), true);
         ItemList.AddHandler(PointerPressedEvent, new PointerEventHandler(ItemList_PointerPressed), true);
         ItemList.AddHandler(TappedEvent, new TappedEventHandler(ItemList_Tapped), true);
         ItemList.RegisterPropertyChangedCallback(TableView.DensityProperty, (_, _) => TableAppearance.Current.Density = ItemList.Density);
@@ -896,6 +973,8 @@ public sealed partial class MainPage : Page
                         if (layout.Widths?.TryGetValue(key, out var width) == true && width > 0)
                             column.Width = new GridLength(width);
                         if (layout.Hidden?.Contains(key) == true && key != "Title") column.Visibility = Visibility.Collapsed;
+                        if (layout.Visible is not null)
+                            column.Visibility = key == "Title" || layout.Visible.Contains(key) ? Visibility.Visible : Visibility.Collapsed;
                     }
                     if (!string.IsNullOrEmpty(layout.SortKey)) { sortKey = layout.SortKey; descending = layout.SortDescending; }
                 }
@@ -906,6 +985,7 @@ public sealed partial class MainPage : Page
         ItemList.Loaded += (_, _) => ApplySort(ViewModel.ItemSortKey, ViewModel.ItemSortDescending);
         UpdateViewMenu();
         _isTableLayoutReady = true;
+        _ = ConfigureVisibleColumnsAsync();
         if (App.Window is { } window) window.Closed += (_, _) => SaveTableLayout();
     }
 
@@ -932,6 +1012,7 @@ public sealed partial class MainPage : Page
             Widths = NamedColumns().Where(entry => entry.Column.Width.IsAbsolute && entry.Column.Width != _defaultColumnWidths.GetValueOrDefault(entry.Column))
                 .ToDictionary(entry => entry.Key, entry => entry.Column.Width.Value),
             Hidden = NamedColumns().Where(entry => entry.Column.Visibility == Visibility.Collapsed).Select(entry => entry.Key).ToList(),
+            Visible = NamedColumns().Where(entry => entry.Column.Visibility == Visibility.Visible).Select(entry => entry.Key).ToList(),
         };
         Windows.Storage.ApplicationData.Current.LocalSettings.Values[TableLayoutKey] =
             System.Text.Json.JsonSerializer.Serialize(layout, TableLayoutJson.Default.TableLayout);
@@ -942,7 +1023,7 @@ public sealed partial class MainPage : Page
         DensityCompact.IsChecked = ItemList.Density == TableViewDensity.Compact;
         DensityStandard.IsChecked = ItemList.Density == TableViewDensity.Standard;
         DensityComfortable.IsChecked = ItemList.Density == TableViewDensity.Comfortable;
-        foreach (var toggle in ColumnsMenu.Items.OfType<ToggleMenuFlyoutItem>())
+        foreach (var toggle in ColumnsMenu.Items.Concat(_headerColumnsMenu.Items).OfType<ToggleMenuFlyoutItem>())
             toggle.IsChecked = NamedColumns().FirstOrDefault(entry => entry.Key == (string)toggle.Tag).Column?.Visibility != Visibility.Collapsed;
     }
 
@@ -953,25 +1034,51 @@ public sealed partial class MainPage : Page
         SaveTableLayout();
     }
 
-    private void ColumnToggle_Click(object sender, RoutedEventArgs e)
+    private void PopulateColumnMenu(IList<MenuFlyoutItemBase> items, string automationPrefix)
+    {
+        foreach (var (key, column) in NamedColumns())
+        {
+            var toggle = new ToggleMenuFlyoutItem
+            {
+                Text = key == "State" ? "Issue / PR state" : column.Header?.ToString() ?? key,
+                Tag = key,
+                IsEnabled = key != "Title",
+            };
+            AutomationProperties.SetAutomationId(toggle, automationPrefix + key);
+            toggle.Click += ColumnToggle_Click;
+            items.Add(toggle);
+        }
+    }
+
+    private Task ConfigureVisibleColumnsAsync()
+    {
+        var visible = NamedColumns().Where(entry => entry.Column.Visibility == Visibility.Visible).Select(entry => entry.Key).ToHashSet();
+        return ViewModel.ConfigureColumnsAsync(visible.Overlaps(["Labels", "IssueType", "Milestone", "Priority", "Effort"]),
+            visible.Overlaps(["Priority", "Effort"]));
+    }
+
+    private async void ColumnToggle_Click(object sender, RoutedEventArgs e)
     {
         if (sender is ToggleMenuFlyoutItem { Tag: string key } toggle &&
             NamedColumns().FirstOrDefault(entry => entry.Key == key).Column is { } column)
             column.Visibility = toggle.IsChecked ? Visibility.Visible : Visibility.Collapsed;
         SaveTableLayout();
+        UpdateViewMenu();
+        await ConfigureVisibleColumnsAsync();
     }
 
-    private void ResetTableLayout_Click(object sender, RoutedEventArgs e)
+    private async void ResetTableLayout_Click(object sender, RoutedEventArgs e)
     {
         ItemList.Density = TableViewDensity.Standard;
         foreach (var column in ItemList.Columns)
         {
             column.Width = _defaultColumnWidths.GetValueOrDefault(column, GridLength.Auto);
-            column.Visibility = Visibility.Visible;
+            column.Visibility = _defaultColumnVisibility.GetValueOrDefault(column, Visibility.Visible);
         }
         ApplySort(WorkspaceRows.DefaultSortKey, true);
         UpdateViewMenu();
         Windows.Storage.ApplicationData.Current.LocalSettings.Values.Remove(TableLayoutKey);
+        await ConfigureVisibleColumnsAsync();
     }
 }
 
@@ -982,6 +1089,7 @@ internal sealed class TableLayout
     public bool SortDescending { get; set; } = true;
     public Dictionary<string, double>? Widths { get; set; }
     public List<string>? Hidden { get; set; }
+    public List<string>? Visible { get; set; }
 }
 
 [System.Text.Json.Serialization.JsonSerializable(typeof(TableLayout))]
