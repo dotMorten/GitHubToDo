@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory)][string]$ManifestPath,
-    [Parameter(Mandatory)][ValidateSet('x64', 'arm64')][string]$Architecture,
+    [ValidateSet('x64', 'arm64')][string]$Architecture,
     [Parameter(Mandatory)][string]$Repository,
     [Parameter(Mandatory)][string]$OutputPath
 )
@@ -21,21 +21,22 @@ if ($version.Major -gt 65535 -or $version.Minor -gt 65535 -or $version.Build -gt
     throw 'MSIX version components must not exceed 65535.'
 }
 $releaseVersion = "$($version.Major).$($version.Minor).$($version.Build)"
+$releaseTag = [uri]::EscapeDataString("release/v$releaseVersion")
 $baseUri = "https://github.com/$Repository/releases"
 $namespace = 'http://schemas.microsoft.com/appx/appinstaller/2021'
 $document = [xml]::new()
 [void]$document.AppendChild($document.CreateXmlDeclaration('1.0', 'utf-8', $null))
 $installer = $document.CreateElement('AppInstaller', $namespace)
 $installer.SetAttribute('Version', $identity.Version)
-$installer.SetAttribute('Uri', "$baseUri/latest/download/GitHubToDo_$Architecture.appinstaller")
+$feedName = if ($Architecture) { "GitHubToDo_$Architecture.appinstaller" } else { 'GitHubToDo.appinstaller' }
+$installer.SetAttribute('Uri', "$baseUri/latest/download/$feedName")
 [void]$document.AppendChild($installer)
 
-$package = $document.CreateElement('MainPackage', $namespace)
+$package = $document.CreateElement('MainBundle', $namespace)
 $package.SetAttribute('Name', $identity.Name)
 $package.SetAttribute('Publisher', $identity.Publisher)
 $package.SetAttribute('Version', $identity.Version)
-$package.SetAttribute('ProcessorArchitecture', $Architecture)
-$package.SetAttribute('Uri', "$baseUri/download/v$releaseVersion/GitHubToDo_${releaseVersion}_$Architecture.msix")
+$package.SetAttribute('Uri', "$baseUri/download/$releaseTag/GitHubToDo_$releaseVersion.msixbundle")
 [void]$installer.AppendChild($package)
 
 $settings = $document.CreateElement('UpdateSettings', $namespace)

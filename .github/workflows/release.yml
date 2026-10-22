@@ -1,25 +1,19 @@
 name: Release
 
-# On-demand: Actions > Release > Run workflow. Builds signed x64 and ARM64 MSIX packages with the official
-# OAuth client ID baked in and publishes them to a GitHub release tagged v<version>.
+# Push release/v<major.minor.build> to build one signed x64/ARM64 MSIX bundle with the official
+# OAuth client ID baked in and publish a GitHub release for that tag.
 # Stable releases also embed and publish App Installer feeds for Windows-managed automatic updates.
 #
 # Repository variables: GITHUBTODO_CLIENT_ID, MSIX_PUBLISHER (must exactly match the signing certificate subject),
 #   MSIX_PUBLISHER_DISPLAY_NAME, AZURE_SIGNING_ENDPOINT, AZURE_SIGNING_ACCOUNT, AZURE_SIGNING_PROFILE
 # Repository secrets:   AZURE_TENANT_ID, AZURE_CLIENT_ID (OIDC: the app registration needs a
-#   federated credential for repo:dotMorten/GitHubToDo:ref:refs/heads/main and the Artifact Signing Certificate
+#   federated credential for repo:dotMorten/GitHubToDo:environment:release and the Artifact Signing Certificate
 #   Profile Signer role on the certificate profile)
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Release version (major.minor.build, e.g. 1.0.0)
-        required: true
-      prerelease:
-        description: Mark as pre-release
-        type: boolean
-        default: false
+  push:
+    tags:
+      - 'release/v*'
 
 permissions:
   contents: write
@@ -32,15 +26,15 @@ concurrency:
 jobs:
   release:
     runs-on: windows-latest
+    environment: release
     env:
-      VERSION: ${{ inputs.version }}
       GITHUBTODO_CLIENT_ID: ${{ vars.GITHUBTODO_CLIENT_ID }}
       DOTNET_NOLOGO: true
       DOTNET_CLI_TELEMETRY_OPTOUT: true
     steps:
       - uses: actions/checkout@v5
 
-      - name: Validate inputs and configuration
+      - name: Validate release tag and configuration
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -49,15 +43,18 @@ jobs:
           AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
           AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
         run: |
-          if ($env:VERSION -notmatch '^\d{1,5}\.\d{1,5}\.\d{1,5}$') { throw "Version must be major.minor.build (e.g. 1.0.0), got '$env:VERSION'." }
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^release/v(\d{1,5}\.\d{1,5}\.\d{1,5})$') { throw "Expected release/v<major.minor.build>, got '$tag'." }
+          $env:VERSION = $Matches[1]
           $version = [version]"$env:VERSION.0"
           if ($version.Major -gt 65535 -or $version.Minor -gt 65535 -or $version.Build -gt 65535) { throw 'MSIX version components must not exceed 65535.' }
           if ($env:VERSION -ne "$($version.Major).$($version.Minor).$($version.Build)") { throw 'Version components must not have leading zeros.' }
           foreach ($name in 'GITHUBTODO_CLIENT_ID','MSIX_PUBLISHER','AZURE_SIGNING_ENDPOINT','AZURE_SIGNING_ACCOUNT','AZURE_SIGNING_PROFILE') {
             if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Repository variable $name is not set." }
           }
-          gh release view "v$env:VERSION" --repo "$env:GITHUB_REPOSITORY" *> $null
-          if ($LASTEXITCODE -eq 0) { throw "Release v$env:VERSION already exists." }
+          "VERSION=$env:VERSION" >> $env:GITHUB_ENV
+          gh release view $tag --repo "$env:GITHUB_REPOSITORY" *> $null
+          if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists." }
           exit 0
 
       - uses: actions/setup-dotnet@v5
@@ -83,7 +80,6 @@ jobs:
         env:
           MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
           MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
-          PRERELEASE: ${{ inputs.prerelease }}
         run: |
           $path = Resolve-Path 'src/GitHubToDo/Package.appxmanifest'
           [xml]$manifest = Get-Content $path -Raw
@@ -93,16 +89,14 @@ jobs:
           $manifest.Package.Applications.Application.VisualElements.SetAttribute('DisplayName', 'GitHubToDo')
           $manifest.Package.Applications.Application.VisualElements.SetAttribute('Description', 'GitHubToDo')
           if ($env:MSIX_PUBLISHER_DISPLAY_NAME) { $manifest.Package.Properties.PublisherDisplayName = $env:MSIX_PUBLISHER_DISPLAY_NAME }
-          if ($env:PRERELEASE -ne 'true') {
-            $namespace = 'http://schemas.microsoft.com/appx/manifest/uap/windows10/13'
-            $manifest.Package.SetAttribute('xmlns:uap13', $namespace)
-            $manifest.Package.SetAttribute('IgnorableNamespaces', "$($manifest.Package.IgnorableNamespaces) uap13")
-            $autoUpdate = $manifest.CreateElement('uap13', 'AutoUpdate', $namespace)
-            $appInstaller = $manifest.CreateElement('uap13', 'AppInstaller', $namespace)
-            $appInstaller.SetAttribute('File', 'Update.appinstaller')
-            [void]$autoUpdate.AppendChild($appInstaller)
-            [void]$manifest.Package.Properties.AppendChild($autoUpdate)
-          }
+          $namespace = 'http://schemas.microsoft.com/appx/manifest/uap/windows10/13'
+          $manifest.Package.SetAttribute('xmlns:uap13', $namespace)
+          $manifest.Package.SetAttribute('IgnorableNamespaces', "$($manifest.Package.IgnorableNamespaces) uap13")
+          $autoUpdate = $manifest.CreateElement('uap13', 'AutoUpdate', $namespace)
+          $appInstaller = $manifest.CreateElement('uap13', 'AppInstaller', $namespace)
+          $appInstaller.SetAttribute('File', 'Update.appinstaller')
+          [void]$autoUpdate.AppendChild($appInstaller)
+          [void]$manifest.Package.Properties.AppendChild($autoUpdate)
           $manifest.Save($path)
           Write-Host "Identity: $($manifest.Package.Identity.Name) $($manifest.Package.Identity.Version) $($manifest.Package.Identity.Publisher)"
 
@@ -113,30 +107,38 @@ jobs:
         shell: pwsh
         run: .\tests\ReleaseAppInstaller.Tests.ps1
 
-      - name: Build MSIX packages
+      - name: Build MSIX bundle
         shell: pwsh
-        env:
-          PRERELEASE: ${{ inputs.prerelease }}
         run: |
           $out = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
           New-Item -ItemType Directory -Force "$out\release" | Out-Null
+          New-Item -ItemType Directory -Force "$out\bundle" | Out-Null
+          $installerPath = "$out\release\GitHubToDo.appinstaller"
+          .\.github\scripts\New-AppInstaller.ps1 -ManifestPath 'src\GitHubToDo\Package.appxmanifest' `
+            -Repository $env:GITHUB_REPOSITORY -OutputPath $installerPath
+          $updateArguments = @("-p:ReleaseAppInstallerPath=$installerPath")
+          # Keep the original feed URLs alive for existing installations.
+          foreach ($arch in 'x64','arm64') {
+            .\.github\scripts\New-AppInstaller.ps1 -ManifestPath 'src\GitHubToDo\Package.appxmanifest' `
+              -Architecture $arch -Repository $env:GITHUB_REPOSITORY `
+              -OutputPath "$out\release\GitHubToDo_$arch.appinstaller"
+          }
           foreach ($arch in 'x64','arm64') {
             $platform = if ($arch -eq 'arm64') { 'ARM64' } else { 'x64' }
-            $updateArguments = @()
-            if ($env:PRERELEASE -ne 'true') {
-              $installerPath = "$out\release\GitHubToDo_$arch.appinstaller"
-              .\.github\scripts\New-AppInstaller.ps1 -ManifestPath 'src\GitHubToDo\Package.appxmanifest' `
-                -Architecture $arch -Repository $env:GITHUB_REPOSITORY -OutputPath $installerPath
-              $updateArguments = @("-p:ReleaseAppInstallerPath=$installerPath")
-            }
             dotnet publish src/GitHubToDo/GitHubToDo.csproj -c Release -r "win-$arch" "-p:Platform=$platform" `
               -p:GenerateAppxPackageOnBuild=true -p:AppxPackageSigningEnabled=false -p:AppxBundle=Never `
               "-p:AppxPackageDir=$out\pkg\$arch\" @updateArguments -tl:off
             if ($LASTEXITCODE -ne 0) { throw "Packaging $arch failed." }
-            $msix = Get-ChildItem "$out\pkg\$arch" -Recurse -Filter '*.msix' | Select-Object -First 1
-            if (-not $msix) { throw "No $arch MSIX produced." }
-            Copy-Item $msix.FullName "$out\release\GitHubToDo_$($env:VERSION)_$arch.msix"
+            $msix = @(Get-ChildItem "$out\pkg\$arch" -Recurse -Filter '*.msix' |
+              Where-Object { $_.FullName -notmatch '\\Dependencies\\' })
+            if ($msix.Count -ne 1) { throw "Expected one $arch application MSIX." }
+            Copy-Item $msix[0].FullName "$out\bundle\GitHubToDo_$arch.msix"
           }
+          $makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $makeappx) { throw 'Windows SDK MakeAppx was not found.' }
+          & $makeappx.FullName bundle /d "$out\bundle" /p "$out\release\GitHubToDo_$env:VERSION.msixbundle" /bv "$env:VERSION.0" /o
+          if ($LASTEXITCODE -ne 0) { throw 'Bundling failed.' }
           Get-ChildItem "$out\release" | Format-Table Name, Length
 
       - name: Azure login (OIDC)
@@ -147,7 +149,7 @@ jobs:
           # Signing only needs the certificate-profile role, not subscription access.
           allow-no-subscriptions: true
 
-      - name: Sign MSIX packages
+      - name: Sign MSIX bundle
         uses: azure/artifact-signing-action@v2
         with:
           exclude-environment-credential: true
@@ -158,7 +160,7 @@ jobs:
           signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
           files-folder: ${{ github.workspace }}\artifacts\release
-          files-folder-filter: msix
+          files-folder-filter: msixbundle
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
@@ -166,27 +168,24 @@ jobs:
       - name: Verify signatures
         shell: pwsh
         run: |
-          foreach ($file in Get-ChildItem artifacts/release -Filter *.msix) {
+          foreach ($file in Get-ChildItem artifacts/release -Filter *.msixbundle) {
             $sig = Get-AuthenticodeSignature $file.FullName
             Write-Host "$($file.Name): $($sig.Status) $($sig.SignerCertificate.Subject)"
             if (-not $sig.SignerCertificate) { throw "$($file.Name) is not signed." }
           }
 
       - name: Verify packaged update configuration
-        if: ${{ !inputs.prerelease }}
         shell: pwsh
         run: |
-          foreach ($arch in 'x64','arm64') {
-            .\.github\scripts\Test-AppInstallerPackage.ps1 `
-              -PackagePath "artifacts\release\GitHubToDo_$($env:VERSION)_$arch.msix" `
-              -AppInstallerPath "artifacts\release\GitHubToDo_$arch.appinstaller"
-          }
+          .\.github\scripts\Test-AppInstallerPackage.ps1 `
+            -PackagePath "artifacts\release\GitHubToDo_$($env:VERSION).msixbundle" `
+            -AppInstallerPath 'artifacts\release\GitHubToDo.appinstaller'
 
       - uses: actions/upload-artifact@v4
         with:
-          name: GitHubToDo-${{ inputs.version }}
+          name: GitHubToDo-${{ env.VERSION }}
           path: |
-            artifacts/release/*.msix
+            artifacts/release/*.msixbundle
             artifacts/release/*.appinstaller
           if-no-files-found: error
 
@@ -194,11 +193,9 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          $files = (Get-ChildItem artifacts/release -File | Where-Object Extension -in '.msix','.appinstaller').FullName
+          $files = (Get-ChildItem artifacts/release -File | Where-Object Extension -in '.msixbundle','.appinstaller').FullName
           $flags = @('--target', $env:GITHUB_SHA, '--title', "GitHubToDo $env:VERSION", '--generate-notes', '--repo', $env:GITHUB_REPOSITORY)
-          if ($env:PRERELEASE -eq 'true') { $flags += '--prerelease'; $flags += '--latest=false' }
-          else { $flags += '--latest' }
-          gh release create "v$env:VERSION" @files @flags
+          $flags += '--latest'
+          gh release create $env:GITHUB_REF_NAME @files @flags
           if ($LASTEXITCODE -ne 0) { throw 'Release creation failed.' }

@@ -4,9 +4,7 @@
 
 An inbox for the issues, pull requests, and reviews that need your attention. GitHubToDo brings your GitHub searches into a native Windows app, remembers what you've read, and helps you pick up where you left off.
 
-**[Install for x64 (Intel / AMD)](https://github.com/dotMorten/GitHubToDo/releases/latest/download/GitHubToDo_x64.appinstaller)**
-
-**[Install for ARM64 (Snapdragon / Windows on Arm)](https://github.com/dotMorten/GitHubToDo/releases/latest/download/GitHubToDo_arm64.appinstaller)**
+**[Download and install GitHubToDo](https://github.com/dotMorten/GitHubToDo/releases/latest/download/GitHubToDo.appinstaller)**
 
 [Report a bug or suggest a feature](https://github.com/dotMorten/GitHubToDo/issues)
 
@@ -70,7 +68,7 @@ Both AI features are optional and require a compatible Windows device with the l
 
 ## Get started
 
-1. **[Download the latest release](https://github.com/dotMorten/GitHubToDo/releases/latest).** Choose **[ARM64](https://github.com/dotMorten/GitHubToDo/releases/latest/download/GitHubToDo_arm64.appinstaller)** for Snapdragon/Windows on Arm, or **[x64](https://github.com/dotMorten/GitHubToDo/releases/latest/download/GitHubToDo_x64.appinstaller)** for Intel and AMD. Open the downloaded `.appinstaller` file with Windows App Installer.
+1. **[Download the installer](https://github.com/dotMorten/GitHubToDo/releases/latest/download/GitHubToDo.appinstaller).** Open the downloaded `.appinstaller` file with Windows App Installer.
 2. **Install and open GitHubToDo.** Official releases include the runtimes and sign-in configuration; no developer tools or OAuth app setup needed.
 3. **Sign in to GitHub.** Follow the browser authorization prompt, then explore the starter searches or add your own.
 
@@ -82,7 +80,7 @@ Starting with v0.1.3, Windows App Installer checks for new **stable releases** o
 
 GitHubToDo also checks its registered App Installer feed at startup and sends a Windows notification when an update is available. Close and reopen the app to let Windows apply it; installation timing still depends on Windows settings. After an upgrade, a separate notification confirms the installed version. Clicking either notification opens the latest release page. These notifications follow your Windows notification settings; development/demo builds and installations without an App Installer feed do not check or notify.
 
-Use the `.appinstaller` download above to enroll in automatic updates. Stable-release `.msix` files also embed the same update configuration for direct installs on supported Windows versions (Windows 11); the `.appinstaller` route is recommended. An older MSIX installation isn't automatically enrolled: open the architecture-matching `.appinstaller` once to enroll. The update keeps your local data as long as the package identity and publisher remain unchanged.
+Using the `.appinstaller` download above also enrolls it in automatic updates.
 
 ## Your reading list, not another place to manage GitHub
 
@@ -116,19 +114,5 @@ For Windows on Arm, use `Platform=ARM64` and `--arch arm64`.
 Local builds appear as **GitHubToDo - Dev** in the Start menu. The official release workflow stamps the display name back to **GitHubToDo**.
 
 Source builds need your own [GitHub OAuth app](https://github.com/settings/developers) with **Device Flow** enabled. Enter its public client ID in Settings; no client secret is needed.
-
-Run the core tests with:
-
-```powershell
-dotnet test .\tests\GitHubToDo.Core.Tests
-```
-
-The on-demand Release workflow publishes signed x64/ARM64 MSIX packages. For stable releases it also generates `GitHubToDo_x64.appinstaller` and `GitHubToDo_arm64.appinstaller`, embeds the matching file as `Update.appinstaller`, and verifies the packaged identity and embedded content before publishing. Each feed has a stable `releases/latest/download/…` URL and points to the exact versioned MSIX in its release. Prereleases omit the update configuration and cannot replace GitHub's latest stable release. Keep the package name and signing publisher unchanged between releases and use increasing versions.
-
-Test the release-feed generator and package verifier without building or installing the app:
-
-```powershell
-.\tests\ReleaseAppInstaller.Tests.ps1
-```
 
 </details>
