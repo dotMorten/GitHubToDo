@@ -39,6 +39,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     private readonly WorkspaceRows _rows = new();
     private readonly DiscussionPreview _preview = new();
     public bool IsDemo => _isDemo;
+    public CancellationToken SessionCancellationToken => _session.Token;
     public ObservableCollection<QueryRow> Queries => _rows.Queries;
     public ObservableCollection<ItemRow> Items => _rows.Items;
     public IReadOnlyList<ItemRow> SelectedItems => _rows.SelectedItems;
@@ -128,17 +129,20 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     public partial ItemRow? SelectedItem { get; set; }
     [ObservableProperty] public partial string EmptyMessage { get; set; } = "Sign in to load your saved queries.";
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SummarizeCommand), nameof(SummarizeUnreadCommand))]
-    public partial bool IsLocalAiReady { get; set; }
+    [NotifyCanExecuteChangedFor(nameof(SummarizeCommand), nameof(SummarizeUnreadCommand), nameof(ConfirmSummaryModelDownloadCommand))]
+    public partial bool IsLocalAiAvailable { get; set; }
     [ObservableProperty] public partial string LocalAiDescription { get; set; } = "Checking the installed local Windows AI model.";
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SummarizeCommand), nameof(SummarizeUnreadCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SummarizeCommand), nameof(SummarizeUnreadCommand), nameof(ConfirmSummaryModelDownloadCommand))]
     public partial bool IsSummarizing { get; set; }
     [ObservableProperty] public partial bool IsSummaryOpen { get; set; }
     [ObservableProperty] public partial string SummaryHeading { get; set; } = "Discussion summary";
     [ObservableProperty] public partial string Summary { get; set; } = "";
     [ObservableProperty] public partial string SummaryStatus { get; set; } = "";
     [ObservableProperty] public partial bool SummaryFailed { get; set; }
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmSummaryModelDownloadCommand))]
+    public partial bool SummaryNeedsModelDownload { get; set; }
 
     public ShellViewModel(DispatcherQueue dispatcher)
     {
@@ -345,7 +349,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     [RelayCommand] private void CancelSignIn() => _device?.Cancel();
     private bool CanMarkRead() => IsSignedIn && SelectedItems.Count > 0 && SelectedItems.All(row => row.Item.HasBaseline);
     private bool CanOpenBrowser() => IsSignedIn && SelectedItem is not null;
-    private bool CanSummarize() => IsSignedIn && IsLocalAiReady && !IsSummarizing &&
+    private bool CanSummarize() => IsSignedIn && IsLocalAiAvailable && !IsSummarizing &&
         SelectedItem is { Item.HasBaseline: true };
     private bool CanSummarizeUnread() => CanSummarize() && SelectedItem is { UnreadActivities.Count: > 0 };
 
@@ -353,7 +357,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     {
         var availability = LocalAiSummarizer.GetAvailability();
         LocalAiDescription = availability.Description;
-        IsLocalAiReady = availability.Ready;
+        IsLocalAiAvailable = availability.Available;
     }
 
     public void SetItemSelection(IEnumerable<ItemRow> selected, ItemRow? primary = null)
@@ -384,6 +388,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         ClearFollowUpsCommand.NotifyCanExecuteChanged();
         SummarizeCommand.NotifyCanExecuteChanged();
         SummarizeUnreadCommand.NotifyCanExecuteChanged();
+        ConfirmSummaryModelDownloadCommand.NotifyCanExecuteChanged();
         UpdateSummaryState();
     }
 
@@ -413,6 +418,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         IsSummarizing = false;
         Summary = "";
         SummaryFailed = false;
+        SummaryNeedsModelDownload = false;
         SummaryStatus = _isEntireSummary
             ? "Discussion changed. Summarize again to update."
             : "Discussion changed. Summarize unread again to update.";
@@ -424,10 +430,20 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanSummarizeUnread), AllowConcurrentExecutions = true)]
     private Task SummarizeUnreadAsync() => GenerateSummaryAsync(entireDiscussion: false);
 
-    private async Task GenerateSummaryAsync(bool entireDiscussion)
+    private bool CanConfirmSummaryModelDownload() => SummaryNeedsModelDownload && IsSignedIn &&
+        IsLocalAiAvailable && !IsSummarizing && _summaryItemId == SelectedItem?.Id &&
+        (_isEntireSummary || _unreadSummarySource is not null);
+
+    [RelayCommand(CanExecute = nameof(CanConfirmSummaryModelDownload))]
+    private Task ConfirmSummaryModelDownloadAsync() =>
+        GenerateSummaryAsync(_isEntireSummary, allowModelDownload: true);
+
+    private async Task GenerateSummaryAsync(bool entireDiscussion, bool allowModelDownload = false)
     {
-        if (!(entireDiscussion ? CanSummarize() : CanSummarizeUnread())) return;
-        var sources = SummarySources(entireDiscussion);
+        if (allowModelDownload ? !CanConfirmSummaryModelDownload() :
+            !(entireDiscussion ? CanSummarize() : CanSummarizeUnread())) return;
+        var sources = allowModelDownload && !entireDiscussion
+            ? [_unreadSummarySource!] : SummarySources(entireDiscussion);
         _summaryCancellation?.Cancel();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_session.Token);
         _summaryCancellation = cancellation;
@@ -441,6 +457,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
             ReferenceEquals(_summaryCancellation, cancellation) && IsSummaryOpen;
         IsSummarizing = true;
         SummaryFailed = false;
+        SummaryNeedsModelDownload = false;
         Summary = "";
         SummaryHeading = entireDiscussion ? "Discussion summary" : "Unread summary";
         SummaryStatus = "Preparing summary…";
@@ -457,7 +474,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         });
         try
         {
-            var summary = await LocalAiSummarizer.SummarizeAsync(sources, progress, content, ct);
+            var summary = await LocalAiSummarizer.SummarizeAsync(sources, progress, content, ct, allowModelDownload);
             ct.ThrowIfCancellationRequested();
             if (!IsCurrent()) return;
             Summary = summary;
@@ -470,6 +487,12 @@ public partial class ShellViewModel : ObservableObject, IDisposable
                 Summary = "";
                 SummaryStatus = "Summarization cancelled.";
             }
+        }
+        catch (LocalAiDownloadRequiredException)
+        {
+            if (!IsCurrent()) return;
+            SummaryStatus = "";
+            SummaryNeedsModelDownload = true;
         }
         catch (Exception ex)
         {
@@ -499,6 +522,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         Summary = "";
         SummaryStatus = "";
         SummaryFailed = false;
+        SummaryNeedsModelDownload = false;
         _summaryItemId = null;
         _unreadSummarySource = null;
         _summaryDiscussionIds.Clear();
@@ -513,7 +537,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task SignOutAsync()
     {
-        CloseSession();
+        await CloseSessionAsync();
         await RunAsync(async () =>
         {
             _credentials?.Clear();
@@ -523,7 +547,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         });
     }
 
-    private void CloseSession()
+    private async Task CloseSessionAsync()
     {
         _timer.Stop();
         _session.Cancel();
@@ -544,6 +568,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         IsSettingsOpen = true;
         EmptyMessage = "Sign in to load your saved queries.";
         QueriesChanged?.Invoke();
+        await LocalAi.ReleaseAsync();
     }
 
     [RelayCommand]
@@ -677,7 +702,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         return await _client.PreviewSearchAsync(expression, AccountLogin, count, linked.Token);
     }
 
-    public (bool Ready, string Description) GetLocalAiAvailability() => LocalAiSummarizer.GetAvailability();
+    public (bool Available, string Description) GetLocalAiAvailability() => LocalAiSummarizer.GetAvailability();
     public Task DeleteQueryAsync(string id) => _workspace.DeleteQueryAsync(id, _session.Token);
     public Task MoveQueryAsync(int offset) => SelectedQuery is { } query
         ? RunAsync(() => _workspace.MoveQueryAsync(query.Id, offset, _session.Token)) : Task.CompletedTask;
@@ -690,7 +715,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         catch (OperationCanceledException) { Status = "Operation cancelled."; }
         catch (GitHubException ex) when (ex.StatusCode == 401)
         {
-            CloseSession();
+            await CloseSessionAsync();
             try { _credentials?.Clear(); } catch { /* Data is already hidden; original auth error takes priority. */ }
             Error = ex.Message + " Sign in again from Settings.";
         }
@@ -776,6 +801,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        if (_isDisposed) return;
         _isDisposed = true;
         _timer.Stop();
         _workspace.Changed -= WorkspaceChanged;
@@ -783,5 +809,6 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         _summaryCancellation?.Cancel();
         _session.Cancel();
         _http.Dispose();
+        _ = LocalAi.ReleaseAsync();
     }
 }

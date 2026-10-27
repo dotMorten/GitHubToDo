@@ -64,7 +64,7 @@ Open an issue or pull request and choose **Summarize unread** to catch up on its
 
 An unread summary keeps its captured excerpt when you mark the item read, even if generation is still running. New discussion activity or changes to the captured comments invalidate it; closing the pane or opening another item clears it.
 
-Both AI features are optional and require a compatible Windows device with the local Windows AI model installed and available. GitHubToDo doesn't automatically download a model or fall back to a cloud provider. You can use the inbox and write queries yourself without AI.
+Both AI features are optional and require a compatible Windows device. Each request ensures the Windows AI model is ready, and requests share one model instance with serialized access. The instance is released on sign-out or shutdown; a failed or cancelled request discards it so the next request can create a fresh one. If the model isn't ready, GitHubToDo asks for confirmation before Windows downloads it (potentially several GB), then continues the requested AI action. Downloads are managed through Windows Update, and installed models can be removed in **Settings > System > AI Components**. There's no cloud fallback; you can use the inbox and write queries yourself without AI.
 
 ## Get started
 

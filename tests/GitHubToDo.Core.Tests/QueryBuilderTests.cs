@@ -91,6 +91,32 @@ public sealed class QueryBuilderTests
     }
 
     [TestMethod]
+    [DataRow("issues closed today", "is:issue closed:@today")]
+    [DataRow("issues created in the past 30 days", "is:issue created:>@today-30d")]
+    [DataRow("issues created in the past year", "is:issue created:>@today-1y")]
+    public async Task GeneratorInstructsRollingDatesAndPreservesThemThroughValidation(string description, string expression)
+    {
+        var result = await QueryGenerator.GenerateAsync(description,
+            (system, _, _) =>
+            {
+                StringAssert.Contains(system, "Use @today and relative offsets for rolling time periods");
+                StringAssert.Contains(system, "closed:@today");
+                StringAssert.Contains(system, "created:>@today-30d");
+                StringAssert.Contains(system, "created:>@today-1y");
+                Assert.DoesNotContain("convert relative dates to absolute dates", system);
+                return Task.FromResult($"QUERY: {expression}");
+            },
+            (query, _) =>
+            {
+                Assert.AreEqual(expression, query);
+                return Task.FromResult(new QueryCheck(null, 3));
+            }, Today);
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(expression, result.Expression);
+        Assert.HasCount(1, result.Attempts);
+    }
+
+    [TestMethod]
     public async Task GeneratorFeedsValidationAndGitHubFailuresBack()
     {
         var replies = new Queue<string>([

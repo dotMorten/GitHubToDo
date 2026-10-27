@@ -65,7 +65,8 @@ public static partial class QueryValidator
             case QualifierValueKind.Repository:
                 return RepositoryValue().IsMatch(bare) ? null : $"repo: needs OWNER/NAME, not “{value}”.";
             case QualifierValueKind.Date:
-                return DateValue().IsMatch(bare) ? null : $"{doc.Name}:{value} needs a date such as >=2026-01-01 or 2026-01-01..2026-02-01.";
+                var resolved = QueryParser.ResolveDateValue(bare, DateOnly.FromDateTime(DateTime.Today));
+                return DateValue().IsMatch(resolved) ? null : $"{doc.Name}:{value} needs a date such as @today, >@today-30d, >=2026-01-01 or 2026-01-01..2026-02-01.";
             case QualifierValueKind.Number:
                 return NumberValue().IsMatch(bare) ? null : $"{doc.Name}:{value} needs a number such as >10 or 5..20.";
             default:

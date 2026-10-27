@@ -62,8 +62,11 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
     [ObservableProperty] public partial bool ExcludeQualifier { get; set; }
     [ObservableProperty] public partial string QualifierError { get; set; } = "";
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(GenerateCommand), nameof(PreviewCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GenerateCommand), nameof(PreviewCommand), nameof(ConfirmModelDownloadCommand))]
     public partial bool IsGenerating { get; set; }
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmModelDownloadCommand))]
+    public partial bool NeedsModelDownload { get; set; }
     [ObservableProperty] public partial string GenerationStatus { get; set; } = "";
     [ObservableProperty] public partial bool IsPreviewing { get; set; }
     [ObservableProperty] public partial string PreviewStatus { get; set; } = "";
@@ -232,8 +235,17 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
     private bool CanGenerate() => IsAiAvailable && !IsGenerating;
 
     [RelayCommand(CanExecute = nameof(CanGenerate))]
-    private async Task GenerateAsync()
+    private Task GenerateAsync() => GenerateAsync(allowModelDownload: false);
+
+    private bool CanConfirmModelDownload() => NeedsModelDownload && CanGenerate();
+
+    [RelayCommand(CanExecute = nameof(CanConfirmModelDownload))]
+    private Task ConfirmModelDownloadAsync() => GenerateAsync(allowModelDownload: true);
+
+    private async Task GenerateAsync(bool allowModelDownload)
     {
+        if (_isDisposed || !CanGenerate() || (allowModelDownload && !CanConfirmModelDownload())) return;
+        NeedsModelDownload = false;
         if (string.IsNullOrWhiteSpace(Description))
         {
             GenerationStatus = "Describe the issues or pull requests you want, e.g. “open PRs in dotnet/maui waiting for my review”.";
@@ -241,7 +253,7 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
         }
         _generation?.Cancel();
         _preview?.Cancel();
-        var cancellation = _generation = new CancellationTokenSource();
+        using var cancellation = _generation = CancellationTokenSource.CreateLinkedTokenSource(_shell.SessionCancellationToken);
         IsGenerating = true;
         Attempts.Clear();
         GenerationStatus = "Writing a query with the on-device model…";
@@ -251,9 +263,15 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
             Attempts.Add(new(attempt));
             GenerationStatus = attempt.Succeeded ? "Validated against GitHub." : $"Attempt {attempt.Number} didn't work. Retrying with the error…";
         });
+        var status = new Progress<string>(message =>
+        {
+            if (!_isDisposed && !cancellation.IsCancellationRequested && IsGenerating &&
+                ReferenceEquals(_generation, cancellation)) GenerationStatus = message;
+        });
         try
         {
-            var result = await LocalAiQueryWriter.GenerateAsync(Description, CheckAsync, progress, cancellation.Token);
+            var result = await LocalAiQueryWriter.GenerateAsync(Description, CheckAsync, progress, status,
+                cancellation.Token, allowModelDownload);
             if (_isDisposed || cancellation.IsCancellationRequested) return;
             if (result.Expression is not null)
             {
@@ -273,14 +291,24 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
             if (result.Succeeded) await PreviewAsync(debounce: false);
             else ClearPreview();
         }
-        catch (OperationCanceledException) { }
+        catch (Exception) when (cancellation.IsCancellationRequested) { }
+        catch (LocalAiDownloadRequiredException)
+        {
+            if (_isDisposed) return;
+            GenerationStatus = "";
+            NeedsModelDownload = true;
+        }
         catch (Exception ex)
         {
             if (!_isDisposed) GenerationStatus = $"Local AI could not generate a query: {Services.LocalAiErrors.Describe(ex)}";
         }
         finally
         {
-            if (ReferenceEquals(_generation, cancellation)) IsGenerating = false;
+            if (ReferenceEquals(_generation, cancellation))
+            {
+                _generation = null;
+                IsGenerating = false;
+            }
         }
     }
 

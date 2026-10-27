@@ -1,21 +1,20 @@
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Text.Json;
+#if USE_AION_INSTRUCT_PREVIEW
+using AionInstructPreview.Text;
+#else
 using Microsoft.Windows.AI;
 using Microsoft.Windows.AI.Text;
-using Windows.ApplicationModel;
+#endif
 using Windows.Foundation;
 using Windows.Storage;
 
 namespace GitHubToDo.Services;
 
-/// <summary>Shared Phi Silica (<see cref="LanguageModel"/>) helpers for summaries and query generation.</summary>
+/// <summary>Shared on-device <see cref="LanguageModel"/> helpers for summaries and query generation.</summary>
 internal static class LocalAi
 {
-    public const string LafFeatureId = "com.microsoft.windows.ai.languagemodel";
-    public const string LocalConfigFileName = "githubtodo.local.json";
     public const int MaxPromptChars = 12000;
-    private static int s_unlockAttempted;
     private static readonly object s_logLock = new();
     private static readonly LocalAiSession<LanguageModel> s_session = new(CreateModelAsync, DisposeModel);
 
@@ -32,22 +31,76 @@ internal static class LocalAi
     }
 
     public static Task<TResult> RunAsync<TResult>(
-        Func<LanguageModel, CancellationToken, Task<TResult>> request, CancellationToken ct) =>
-        s_session.RunAsync(request, ct);
+        Func<LanguageModel, CancellationToken, Task<TResult>> request, CancellationToken ct,
+        bool allowModelDownload = false, IProgress<string>? progress = null) =>
+        s_session.RunAsync(request, ct, token => EnsureReadyAsync(allowModelDownload, progress, token));
+
+    public static async Task ReleaseAsync()
+    {
+        try { await s_session.ResetAsync(); }
+        catch (Exception ex) { Log($"LanguageModel release failed 0x{ex.HResult:X8}: {ex.Message}"); }
+    }
+
+#if USE_AION_INSTRUCT_PREVIEW
+    private static Task EnsureReadyAsync(bool allowModelDownload, IProgress<string>? progress, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        progress?.Report("Loading Aion Instruct Preview. The first load may take several minutes…");
+        return Task.CompletedTask;
+    }
+#else
+    private static async Task EnsureReadyAsync(bool allowModelDownload, IProgress<string>? progress, CancellationToken ct)
+    {
+        var ready = LanguageModel.GetReadyState();
+        Log($"LanguageModel.GetReadyState = {ready}");
+        if (ready == AIFeatureReadyState.NotReady && !allowModelDownload)
+            throw new LocalAiDownloadRequiredException();
+        if (ready is not (AIFeatureReadyState.Ready or AIFeatureReadyState.NotReady))
+            throw new InvalidOperationException($"The local Windows AI model is unavailable ({ready}).");
+        ct.ThrowIfCancellationRequested();
+        progress?.Report(ready == AIFeatureReadyState.NotReady
+            ? "Downloading or preparing the local Windows AI model…"
+            : "Preparing the local Windows AI model…");
+        var operation = LanguageModel.EnsureReadyAsync();
+        var completion = operation.AsTask();
+        try
+        {
+            using var registration = ct.Register(() => CancelOperation(operation));
+            var result = await completion;
+            Log($"LanguageModel.EnsureReadyAsync = {result.Status}" +
+                $" error 0x{result.Error?.HResult ?? 0:X8} extended 0x{result.ExtendedError?.HResult ?? 0:X8}" +
+                $" package installation failed = {result.PackageInstallationFailed}");
+            ct.ThrowIfCancellationRequested();
+            if (result.Status != AIFeatureReadyResultState.Success)
+            {
+                var error = result.ExtendedError is { HResult: not 0 } ? result.ExtendedError : result.Error;
+                if (error is { HResult: not 0 })
+                    throw new COMException("Windows could not prepare the local AI model.", error.HResult);
+                throw new InvalidOperationException($"Windows could not prepare the local AI model ({result.Status}).");
+            }
+            progress?.Report("Loading the local Windows AI model…");
+        }
+        finally
+        {
+            await DrainAndCloseAsync(operation, completion);
+        }
+    }
+#endif
 
     private static async Task<LanguageModel> CreateModelAsync()
     {
-        TryUnlock();
-        var ready = LanguageModel.GetReadyState();
-        Log($"LanguageModel.GetReadyState = {ready}");
-        if (ready != AIFeatureReadyState.Ready)
-            throw new InvalidOperationException("The local Windows AI model is not ready. No model will be downloaded.");
         var operation = LanguageModel.CreateAsync();
         var completion = operation.AsTask();
         try
         {
             var model = await completion;
             Log("LanguageModel.CreateAsync succeeded");
+#if USE_AION_INSTRUCT_PREVIEW
+            Log("LanguageModel provider = Aion Instruct Preview");
+#else
+            try { Log($"LanguageModel identity = {model.ModelName}, version {model.ModelVersion}"); }
+            catch (Exception ex) { Log($"LanguageModel identity unavailable 0x{ex.HResult:X8}"); }
+#endif
             return model;
         }
         catch (Exception ex)
@@ -86,7 +139,11 @@ internal static class LocalAi
                 Log($"GenerateResponseAsync threw 0x{ex.HResult:X8} {ex.GetType().Name}: {ex.Message}");
                 throw;
             }
-            Log($"GenerateResponseAsync = {response.Status} ({prompt.Length} chars){(response.ExtendedError is { } x ? $" extended 0x{x.HResult:X8} {x.Message}" : "")}");
+            Exception? extendedError = null;
+#if !USE_AION_INSTRUCT_PREVIEW
+            extendedError = response.ExtendedError;
+#endif
+            Log($"GenerateResponseAsync = {response.Status} ({prompt.Length} chars){(extendedError is { } x ? $" extended 0x{x.HResult:X8} {x.Message}" : "")}");
             ct.ThrowIfCancellationRequested();
             return response.Status switch
             {
@@ -95,11 +152,13 @@ internal static class LocalAi
                 LanguageModelResponseStatus.ResponseBlockedByContentModeration => throw new InvalidOperationException("Content moderation blocked the local model's answer."),
                 LanguageModelResponseStatus.PromptLargerThanContext => throw new InvalidOperationException("The prompt is larger than the local model's context window."),
                 LanguageModelResponseStatus.BlockedByPolicy => throw new InvalidOperationException("Local AI is blocked by device policy."),
+#if !USE_AION_INSTRUCT_PREVIEW
                 LanguageModelResponseStatus.LowOnVram => throw new InvalidOperationException("NPU memory is low; try again shortly."),
                 LanguageModelResponseStatus.BlockedByGameMode => throw new InvalidOperationException("Local AI is paused while Game Mode is active."),
-                _ when response.ExtendedError is { HResult: unchecked((int)0x800706BE) or unchecked((int)0x800706BA) } =>
-                    throw new COMException("The Windows AI model service stopped responding.", response.ExtendedError.HResult),
-                _ => throw new InvalidOperationException($"The local model did not answer ({response.Status}{(response.ExtendedError is { } e ? $", 0x{e.HResult:X8}" : "")})."),
+#endif
+                _ when extendedError is { HResult: unchecked((int)0x800706BE) or unchecked((int)0x800706BA) } =>
+                    throw new COMException("The Windows AI model service stopped responding.", extendedError.HResult),
+                _ => throw new InvalidOperationException($"The local model did not answer ({response.Status}{(extendedError is { } e ? $", 0x{e.HResult:X8}" : "")})."),
             };
         }
         finally
@@ -144,42 +203,10 @@ internal static class LocalAi
             model.Dispose();
             Log("LanguageModel disposed");
         }
-        catch (COMException ex) when (IsDisconnected(ex))
+        catch (COMException ex)
         {
             Log($"LanguageModel disposal failed 0x{ex.HResult:X8}: {ex.Message}");
         }
     }
 
-    private static bool IsDisconnected(COMException ex) =>
-        ex.HResult is unchecked((int)0x800706BE) or unchecked((int)0x800706BA) or
-            unchecked((int)0x80010108) or unchecked((int)0x80000013);
-
-    /// <summary>
-    /// Optionally unlocks the Limited Access Feature from GITHUBTODO_LAF_TOKEN / GITHUBTODO_LAF_ATTESTATION
-    /// or a git-ignored githubtodo.local.json (lafToken, lafAttestation) in LocalState. Otherwise the OS policy applies.
-    /// </summary>
-    public static void TryUnlock()
-    {
-        if (Interlocked.Exchange(ref s_unlockAttempted, 1) == 1) return;
-        try
-        {
-            var token = Environment.GetEnvironmentVariable("GITHUBTODO_LAF_TOKEN");
-            var attestation = Environment.GetEnvironmentVariable("GITHUBTODO_LAF_ATTESTATION");
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                var path = Path.Combine(ApplicationData.Current.LocalFolder.Path, LocalConfigFileName);
-                if (!File.Exists(path)) return;
-                using var document = JsonDocument.Parse(File.ReadAllText(path));
-                token = document.RootElement.TryGetProperty("lafToken", out var t) ? t.GetString() : null;
-                attestation = document.RootElement.TryGetProperty("lafAttestation", out var a) ? a.GetString() : null;
-            }
-            if (!string.IsNullOrWhiteSpace(token))
-                Log($"TryUnlockFeature = {LimitedAccessFeatures.TryUnlockFeature(LafFeatureId, token, attestation ?? "").Status}");
-            else Log("No LAF token configured; relying on OS policy.");
-        }
-        catch
-        {
-            // Unlocking is optional; readiness reporting explains any remaining restriction.
-        }
-    }
 }

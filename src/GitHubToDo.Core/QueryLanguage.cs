@@ -28,6 +28,8 @@ public static class QueryLanguage
         "Use OR and parentheses to group alternatives, e.g. (author:@me OR assignee:@me). " +
         "Quote values that contain spaces, e.g. label:\"good first issue\". Free words search titles and bodies. " +
         "@me means the signed-in account. Dates use YYYY-MM-DD with >, >=, <, <= or start..end ranges. " +
+        "Relative dates use @today with optional offsets in days (d), weeks (w), months (m) or years (y), " +
+        "e.g. closed:@today or created:>@today-30d. They resolve using your local calendar date on each search. " +
         "GitHub searches always retrieve the most recently updated items first.";
 
     private static readonly string[] TrueFalse = ["true", "false"];
@@ -115,13 +117,13 @@ public static class QueryLanguage
             "Pull requests into a branch.", "base:BRANCH", ["base:main"]),
 
         new("created", "Dates and counts", QualifierValueKind.Date,
-            "Creation date.", "created:>=YYYY-MM-DD | created:START..END", ["created:>=2026-01-01"]),
+            "Creation date.", "created:>=DATE | created:START..END", ["created:>=2026-01-01", "created:>@today-30d", "created:>@today-1y"]),
         new("updated", "Dates and counts", QualifierValueKind.Date,
-            "Last update date.", "updated:>=YYYY-MM-DD", ["updated:>=2026-06-01"]),
+            "Last update date.", "updated:>=DATE", ["updated:>=2026-06-01", "updated:>=@today-1w"]),
         new("closed", "Dates and counts", QualifierValueKind.Date,
-            "Closing date.", "closed:<YYYY-MM-DD", ["closed:2026-01-01..2026-03-31"]),
+            "Closing date.", "closed:DATE | closed:START..END", ["closed:2026-01-01..2026-03-31", "closed:@today"]),
         new("merged", "Dates and counts", QualifierValueKind.Date,
-            "Pull-request merge date.", "merged:>=YYYY-MM-DD", ["is:pr merged:>=2026-06-01"]),
+            "Pull-request merge date.", "merged:>=DATE", ["is:pr merged:>=2026-06-01", "is:pr merged:>=@today-1m"]),
         new("comments", "Dates and counts", QualifierValueKind.Number,
             "Number of comments.", "comments:>N | comments:N..M", ["comments:>10"]),
         new("interactions", "Dates and counts", QualifierValueKind.Number,

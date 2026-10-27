@@ -51,6 +51,21 @@ public sealed class GitHubClientTests
     }
 
     [TestMethod]
+    public async Task RestSearchResolvesRelativeDatesBeforeSendingTheQuery()
+    {
+        using var database = new TestDatabase();
+        using var http = new HttpClient(new FakeHandler((request, _) =>
+        {
+            var query = Uri.UnescapeDataString(request.RequestUri!.Query);
+            Assert.Contains($"closed:{DateTime.Today:yyyy-MM-dd}", query);
+            Assert.DoesNotContain("@today", query);
+            return Task.FromResult(FakeHandler.Json("""{"total_count":0,"incomplete_results":false,"items":[]}"""));
+        }));
+        var client = new GitHubClient(http, _ => Task.FromResult("fake-token"), database.Store);
+        await client.SearchAsync("closed:@today", "viewer", default);
+    }
+
+    [TestMethod]
     public async Task SearchStopsAtOneThousandAndReportsActualTotal()
     {
         using var database = new TestDatabase();

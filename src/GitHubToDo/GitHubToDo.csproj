@@ -20,6 +20,16 @@
     <NoWarn>$(NoWarn);CS8305</NoWarn>
     <SuppressXamlWarnings Condition="'$(SuppressXamlWarnings)' == ''">1501</SuppressXamlWarnings>
     <SuppressXamlWarnings Condition="'$(SuppressXamlWarnings)' != '' and '$(SuppressXamlWarnings)' != '1501'">$(SuppressXamlWarnings);1501</SuppressXamlWarnings>
+    <UseAionInstructPreview Condition="'$(UseAionInstructPreview)' == ''">false</UseAionInstructPreview>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(UseAionInstructPreview)' == 'true'">
+    <DefineConstants>$(DefineConstants);USE_AION_INSTRUCT_PREVIEW</DefineConstants>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <IntermediateOutputPath>$(BaseIntermediateOutputPath)$(Platform)\$(Configuration)\Aion\</IntermediateOutputPath>
+    <OutputPath>bin\$(Platform)\$(Configuration)\Aion\</OutputPath>
+    <RestoreAdditionalProjectSources>$(RestoreAdditionalProjectSources);$(MSBuildProjectDirectory)\nuget-local</RestoreAdditionalProjectSources>
+    <WindowsSdkPackageVersion>10.0.26100.57</WindowsSdkPackageVersion>
+    <CsWinRTWindowsMetadata>$(NuGetPackageRoot)\microsoft.windows.sdk.net.ref\$(WindowsSdkPackageVersion)\winmd</CsWinRTWindowsMetadata>
   </PropertyGroup>
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
@@ -63,6 +73,37 @@
   <ItemGroup>
     <ProjectReference Include="..\GitHubToDo.Core\GitHubToDo.Core.csproj" />
   </ItemGroup>
+  <ItemGroup Condition="'$(UseAionInstructPreview)' == 'true'">
+    <PackageReference Include="AionInstructPreview.Text.Framework" Version="[1.1.0]" />
+    <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.1.5" />
+    <!-- TabularControlsResources looks up its theme in the app's resource maps. -->
+    <Content Include="$(XamlCompilerPropsAndTargetsDirectory)..\runtimes-framework\$(RuntimeIdentifier)\native\Microsoft.UI.Xaml.Controls.Tabular.pri">
+      <Link>Microsoft.UI.Xaml.Controls.Tabular.pri</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- The preview SDK edits its input manifest; keep those edits in obj. -->
+  <Target Name="PrepareAionManifest"
+          BeforeTargets="AionInstructPreviewText_InjectPackageDependency"
+          Condition="'$(UseAionInstructPreview)' == 'true'">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\Package.appxmanifest"
+          DestinationFiles="$(IntermediateOutputPath)Aion.Package.appxmanifest" />
+    <!-- Resolve the experimental UI runtime before Aion's stable runtime dependency. -->
+    <InjectAionInstructPackageDependency
+        ManifestPath="$(IntermediateOutputPath)Aion.Package.appxmanifest"
+        DepName="Microsoft.WindowsAppRuntime.2-experimentalF"
+        DepMinVersion="2.5.4.0"
+        DepPublisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+    <ItemGroup>
+      <AppxManifest Remove="@(AppxManifest)" />
+      <AppxManifest Include="$(IntermediateOutputPath)Aion.Package.appxmanifest" />
+    </ItemGroup>
+  </Target>
+  <Target Name="InjectAionManifestBeforeGeneration"
+          BeforeTargets="_GenerateCurrentProjectAppxManifest"
+          DependsOnTargets="PrepareAionManifest;AionInstructPreviewText_InjectPackageDependency"
+          Condition="'$(UseAionInstructPreview)' == 'true'" />
 
   <!--
     Official release builds bake in the GitHub OAuth app client ID (a public identifier, not a secret) from the

@@ -6,9 +6,10 @@ namespace GitHubToDo.Services;
 internal static class LocalAiQueryWriter
 {
     public static Task<GeneratedQuery> GenerateAsync(string description, Func<string, CancellationToken, Task<QueryCheck>> check,
-        IProgress<QueryAttempt> progress, CancellationToken ct) =>
+        IProgress<QueryAttempt> progress, IProgress<string> status, CancellationToken ct, bool allowModelDownload = false) =>
         Task.Run(() => LocalAi.RunAsync((model, token) =>
             QueryGenerator.GenerateAsync(description,
                 (system, user, generationToken) => LocalAi.GenerateAsync(model, system, user, generationToken),
-                check, DateOnly.FromDateTime(DateTime.Now), progress, QueryGenerator.DefaultAttempts, token), ct), ct);
+                check, DateOnly.FromDateTime(DateTime.Now), progress, QueryGenerator.DefaultAttempts, token),
+            ct, allowModelDownload, status), ct);
 }

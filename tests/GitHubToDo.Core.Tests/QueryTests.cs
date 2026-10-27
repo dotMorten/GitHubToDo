@@ -34,6 +34,61 @@ public sealed class QueryTests
     }
 
     [TestMethod]
+    [DataRow("closed:@today", "closed:2026-10-26")]
+    [DataRow("created:>@today-30d", "created:>2026-09-26")]
+    [DataRow("created:>@today-1y", "created:>2025-10-26")]
+    [DataRow("updated:>=@today-2w", "updated:>=2026-10-12")]
+    [DataRow("merged:<=@today+1m", "merged:<=2026-11-26")]
+    [DataRow("-CLOSED:@TODAY", "-CLOSED:2026-10-26")]
+    [DataRow("closed:@today-7d..@today", "closed:2026-10-19..2026-10-26")]
+    [DataRow("closed:2026-01-01..@today", "closed:2026-01-01..2026-10-26")]
+    [DataRow("created:@today-1y..*", "created:2025-10-26..*")]
+    [DataRow("closed:\"@today\"", "closed:\"2026-10-26\"")]
+    public void RelativeDateQualifiersResolveBeforeSearching(string expression, string expected)
+    {
+        Assert.AreEqual(expected, QueryParser.Parse(expression, "viewer", new(2026, 10, 26)).Search);
+        Assert.IsEmpty(QueryValidator.Validate(expression));
+    }
+
+    [TestMethod]
+    public void RelativeDatesRollForwardWithoutChangingTheSavedExpression()
+    {
+        var saved = new SavedQuery { Expression = "closed:@today author:@me" };
+        Assert.AreEqual("closed:2026-10-26 author:viewer", QueryParser.Parse(saved.Expression, "viewer", new(2026, 10, 26)).Search);
+        Assert.AreEqual("closed:2026-10-27 author:viewer", QueryParser.Parse(saved.Expression, "viewer", new(2026, 10, 27)).Search);
+        Assert.AreEqual("closed:@today author:@me", saved.Expression);
+    }
+
+    [TestMethod]
+    public void RelativeDateArithmeticUsesCalendarMonthsAndYears()
+    {
+        Assert.AreEqual("created:>2024-02-29", QueryParser.Parse("created:>@today-1m", "viewer", new(2024, 3, 31)).Search);
+        Assert.AreEqual("created:>2023-02-28", QueryParser.Parse("created:>@today-1y", "viewer", new(2024, 2, 29)).Search);
+    }
+
+    [TestMethod]
+    public void RelativeDatesRespectGroupingUrlsAndLiteralSearchText()
+    {
+        const string expression = "(closed:@today OR merged:>@today-1y) label:\"closed:@today\" \"created:>@today-30d\"";
+        const string expected = "( closed:2026-10-26 OR merged:>2025-10-26 ) label:\"closed:@today\" \"created:>@today-30d\"";
+        var url = "https://github.com/issues?q=" + Uri.EscapeDataString(expression);
+        Assert.AreEqual(expected, QueryParser.Parse(url, "viewer", new(2026, 10, 26)).Search);
+    }
+
+    [TestMethod]
+    [DataRow("closed:@today-30")]
+    [DataRow("created:>@today-1q")]
+    [DataRow("updated:@today-nope")]
+    [DataRow("merged:@today-999999999999999d")]
+    [DataRow("created:@today+2147483647w")]
+    [DataRow("created:@today-10000y")]
+    public void InvalidRelativeDatesGiveAnExplicitError(string expression)
+    {
+        Assert.Throws<ArgumentException>(() => QueryParser.Parse(expression, "viewer", new(2026, 10, 26)));
+        Assert.IsTrue(QueryValidator.Validate(expression).Any(issue => issue.IsError));
+    }
+
+    [TestMethod]
     public void UrlDecodesExactlyOnce()
     {
         var input = "https://github.com/issues/search?q=state%3Aopen+archived%3Afalse+involves%3A%40me+sort%3Aupdated-desc";

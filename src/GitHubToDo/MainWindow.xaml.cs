@@ -14,6 +14,8 @@ namespace GitHubToDo;
 /// </summary>
 public sealed partial class MainWindow : Window
 {
+    private bool _isClosing;
+
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(nint hWnd);
 
@@ -31,5 +33,14 @@ public sealed partial class MainWindow : Window
         RootFrame.Navigate(typeof(MainPage));
         if (RootFrame.Content is MainPage page) SetTitleBar(page.AppTitleBarElement);
         Services.ThemeService.Apply(this, Services.ThemeService.Load());
+        AppWindow.Closing += async (_, args) =>
+        {
+            args.Cancel = true;
+            if (_isClosing) return;
+            _isClosing = true;
+            if (RootFrame.Content is MainPage currentPage) currentPage.ViewModel.Dispose();
+            await Services.LocalAi.ReleaseAsync();
+            Close();
+        };
     }
 }

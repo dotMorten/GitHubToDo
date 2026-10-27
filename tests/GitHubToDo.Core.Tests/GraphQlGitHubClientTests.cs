@@ -216,6 +216,28 @@ public sealed class GraphQlGitHubClientTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RelativeDatesAreResolvedForSavedSearchesAndBuilderPreviews(bool preview)
+    {
+        const string expression = "closed:@today created:>@today-30d merged:>@today-1y author:@me";
+        var client = Client((request, _) =>
+        {
+            var today = DateTime.Today;
+            var expected = $"closed:{today:yyyy-MM-dd} created:>{today.AddDays(-30):yyyy-MM-dd} " +
+                $"merged:>{today.AddYears(-1):yyyy-MM-dd} author:viewer sort:updated-desc";
+            Assert.AreEqual(expected, request.GetProperty("variables").GetProperty("q0").GetString());
+            return Response(new { s0 = Search([Item("match")], 1) });
+        });
+        var saved = new SavedQuery { Expression = expression };
+        var result = preview
+            ? await client.PreviewSearchAsync(saved.Expression, "viewer", 20, default)
+            : (await client.SearchBatchAsync([saved], "viewer", default))[saved.Id].Value!;
+        Assert.AreEqual("match", result.Items.Single().Id);
+        Assert.AreEqual(expression, saved.Expression);
+    }
+
+    [TestMethod]
     public async Task SearchBatchesAreBoundedAndPaginateEachAliasIndependently()
     {
         var client = Client((request, call) =>

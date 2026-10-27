@@ -6,6 +6,8 @@ TestResults/
 *.user
 *.msix
 *.msixbundle
+**/nuget-local/
+/artifacts/aion/
 
-# Optional local AI Limited Access Feature token (never commit)
+# Local-only configuration (never commit)
 githubtodo.local.json

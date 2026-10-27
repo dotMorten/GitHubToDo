@@ -531,6 +531,15 @@
                                                 <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled"
                                                               AutomationProperties.AutomationId="SummaryPane" AutomationProperties.Name="Local AI summary">
                                                     <StackPanel Spacing="12">
+                                                        <InfoBar IsOpen="{x:Bind ViewModel.SummaryNeedsModelDownload, Mode=TwoWay}"
+                                                                 IsClosable="True" Severity="Informational" Title="Download local AI model?"
+                                                                 Message="Windows needs to download an optional language model, which can use several GB. Download progress is available in Windows Update; the model can be removed in Settings > System > AI Components."
+                                                                 AutomationProperties.AutomationId="SummaryModelDownloadConfirmation">
+                                                            <InfoBar.ActionButton>
+                                                                <Button Content="Download model" Command="{x:Bind ViewModel.ConfirmSummaryModelDownloadCommand}"
+                                                                        AutomationProperties.AutomationId="ConfirmSummaryModelDownload" />
+                                                            </InfoBar.ActionButton>
+                                                        </InfoBar>
                                                         <TextBlock Text="{x:Bind ViewModel.SummaryStatus, Mode=OneWay}" TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}"
                                                                    Visibility="{x:Bind local:MainPage.TextVisible(ViewModel.SummaryStatus), Mode=OneWay}"
                                                                    Foreground="{x:Bind local:MainPage.SummaryStatusBrush(ViewModel.SummaryFailed), Mode=OneWay}"

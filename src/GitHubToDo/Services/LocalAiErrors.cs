@@ -14,7 +14,9 @@ internal static class LocalAiErrors
         COMException { HResult: RpcFailed or RpcUnavailable } =>
             "the Windows AI model service stopped responding. Try again.",
         COMException { HResult: AccessDenied } or UnauthorizedAccessException =>
-            "this app is not allowed to use the on-device model (Phi Silica is a Limited Access Feature).",
+            "access to the on-device AI model was denied.",
+        COMException error =>
+            $"the Windows AI runtime failed (0x{error.HResult:X8}).",
         _ => FirstLine(ex.Message),
     };
 
