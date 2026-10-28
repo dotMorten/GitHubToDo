@@ -9,6 +9,65 @@ namespace GitHubToDo.Core.Tests;
 public sealed class WorkspaceRowsTests
 {
     [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    public void QueryHeadersShowLoadingUntilTheirOwnItemsAreComplete(int count)
+    {
+        var account = PendingAccount(count);
+        foreach (var item in account.Items.Values)
+            ReadStatePolicy.ApplyActivity(item,
+                [new("comment", ActivityKind.Comment, "other", "other", item.CreatedAt, "unread", "")], item.CreatedAt);
+        account.IsLoading = true;
+        account.LoadedQueryIds.Add(account.Queries[0].Id);
+        var rows = new WorkspaceRows();
+        rows.UpdateQueries(account);
+        var row = rows.Queries[1];
+        var changes = new List<string?>();
+        row.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
+        rows.UpdateItems(row.Query, account);
+
+        Assert.HasCount(account.Queries.Count, rows.Queries);
+        Assert.IsTrue(row.IsLoading);
+        Assert.AreEqual("…", row.SidebarBadge);
+        Assert.IsTrue(row.IsSidebarBadgeVisible);
+        Assert.AreEqual(0, row.UnreadCount);
+        Assert.IsEmpty(rows.Items, "Shared items from an earlier query must not partially populate an unloaded query.");
+
+        account.LoadedQueryIds.Add(row.Id);
+        rows.UpdateQueries(account);
+        rows.UpdateItems(row.Query, account);
+
+        Assert.AreSame(row, rows.Queries[1]);
+        Assert.IsFalse(row.IsLoading);
+        Assert.HasCount(count, rows.Items);
+        Assert.AreEqual(count, row.UnreadCount);
+        Assert.AreEqual(count.ToString(), row.SidebarBadge);
+        Assert.AreEqual(count > 0, row.IsSidebarBadgeVisible);
+        Assert.Contains(nameof(QueryRow.IsLoading), changes);
+        Assert.Contains(nameof(QueryRow.SidebarBadge), changes);
+        Assert.Contains(nameof(QueryRow.IsSidebarBadgeVisible), changes);
+    }
+
+    [TestMethod]
+    public void FollowUpsAppearOnlyAfterAllCachedItemsHaveLoaded()
+    {
+        var account = PendingAccount(1);
+        account.IsLoading = true;
+        account.Items["item:0"].IsFlagged = true;
+        var rows = new WorkspaceRows();
+
+        rows.UpdateQueries(account);
+
+        Assert.HasCount(account.Queries.Count, rows.Queries);
+        Assert.IsTrue(rows.Queries.All(query => query.IsSavedQuery));
+        account.IsLoading = false;
+        rows.UpdateQueries(account);
+        var followUps = rows.Queries.Single(query => !query.IsSavedQuery);
+        Assert.AreEqual(1, followUps.Query.TotalCount);
+        Assert.AreEqual("item:0", followUps.Query.ItemIds.Single());
+    }
+
+    [TestMethod]
     public void FailedOptionalCellsUseNeutralPlaceholdersAndKeepTheActualErrorInTheirTooltip()
     {
         var account = PendingAccount(1);

@@ -6,6 +6,238 @@ namespace GitHubToDo.Core.Tests;
 [TestClass]
 public sealed class PersistenceAndWorkspaceTests
 {
+    private static async Task<AccountSnapshot> CachedQueriesAsync(TestDatabase database)
+    {
+        var account = new AccountSnapshot
+        {
+            User = new("1", "viewer"),
+            Queries =
+            [
+                new() { Id = "first", Name = "First", Expression = "is:issue", ItemIds = ["first", "shared"] },
+                new() { Id = "active", Name = "Active", Expression = "is:pr", ItemIds = ["active", "shared"] },
+                new() { Id = "last", Name = "Last", Expression = "is:open", ItemIds = ["last"] }
+            ],
+            IgnoredAccounts = [new("ignored", "ignored-id")]
+        };
+        foreach (var id in new[] { "first", "active", "last", "shared", "orphan" })
+        {
+            var item = FakeClient.NewItem();
+            item.Id = id;
+            item.IsFlagged = id == "orphan";
+            item.AcknowledgedIds.Add($"{id}:read");
+            account.Items.Add(id, item);
+        }
+        await database.Store.SaveAsync(account);
+        return account;
+    }
+
+    [TestMethod]
+    public async Task ReopeningCachedAccountsDoesNotRewriteStoredData()
+    {
+        using var database = new TestDatabase();
+        var original = await CachedQueriesAsync(database);
+        await using var connection = new SqliteConnection($"Data Source={database.PathName}");
+        await connection.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TRIGGER RejectAccountSave BEFORE INSERT ON Accounts
+            BEGIN SELECT RAISE(ABORT,'An existing account must not be saved during load'); END;
+            """;
+        await command.ExecuteNonQueryAsync();
+        var workspace = new WorkspaceService(database.Store, new FakeClient());
+
+        await workspace.OpenAsync(original.User);
+
+        Assert.HasCount(3, workspace.Account!.Queries);
+        Assert.HasCount(5, workspace.Account.Items);
+        Assert.IsTrue(workspace.Account.Items["orphan"].IsFlagged);
+    }
+
+    [TestMethod]
+    public async Task OpeningNewAccountsPersistsTheirInitialQueryIds()
+    {
+        using var database = new TestDatabase();
+        var user = new GitHubUser("new", "new");
+        var workspace = new WorkspaceService(database.Store, new FakeClient());
+
+        await workspace.OpenAsync(user);
+        var originalIds = workspace.Account!.Queries.Select(query => query.Id).ToArray();
+        await workspace.OpenAsync(user);
+
+        CollectionAssert.AreEqual(originalIds, workspace.Account!.Queries.Select(query => query.Id).ToArray());
+    }
+
+    [TestMethod]
+    public async Task CachedQueriesPublishAllHeadersThenLoadActiveFirstWithCompleteQueryItems()
+    {
+        using var database = new TestDatabase();
+        var original = await CachedQueriesAsync(database);
+        var snapshots = new List<AccountSnapshot>();
+        await foreach (var snapshot in database.Store.LoadQueriesAsync(original.User, "active"))
+            snapshots.Add(snapshot);
+
+        Assert.HasCount(5, snapshots);
+        Assert.IsEmpty(snapshots[0].Items);
+        Assert.IsEmpty(snapshots[0].LoadedQueryIds);
+        CollectionAssert.AreEqual(new[] { "active" }, snapshots[1].LoadedQueryIds.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "active", "shared" }, snapshots[1].Items.Keys.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "first", "active" }, snapshots[2].LoadedQueryIds.ToArray());
+        Assert.AreSame(snapshots[1].Items["shared"], snapshots[2].Items["shared"]);
+        Assert.IsTrue(snapshots.Take(4).All(snapshot => snapshot.IsLoading));
+        Assert.IsFalse(snapshots[^1].IsLoading);
+        foreach (var snapshot in snapshots)
+        {
+            CollectionAssert.AreEqual(original.Queries.Select(query => query.Id).ToArray(),
+                snapshot.Queries.Select(query => query.Id).ToArray());
+            Assert.IsTrue(snapshot.Queries.Where(query => snapshot.LoadedQueryIds.Contains(query.Id))
+                .All(query => query.ItemIds.All(snapshot.Items.ContainsKey)));
+        }
+        Assert.HasCount(2, snapshots[1].Items, "Later loads must not modify an already published dictionary.");
+        Assert.HasCount(1, snapshots[1].LoadedQueryIds);
+        CollectionAssert.AreEqual(original.Queries.Select(query => query.Id).ToArray(),
+            snapshots[^1].Queries.Select(query => query.Id).ToArray());
+        Assert.HasCount(original.Items.Count, snapshots[^1].Items);
+        Assert.IsTrue(snapshots[^1].Items["orphan"].IsFlagged);
+        Assert.Contains("shared:read", snapshots[^1].Items["shared"].AcknowledgedIds);
+        Assert.AreEqual("ignored-id", snapshots[0].IgnoredAccounts.Single().Id);
+    }
+
+    [TestMethod]
+    public async Task QueryHeadersArePublishedBeforeAnyCachedItemIsDeserialized()
+    {
+        using var database = new TestDatabase();
+        var original = await CachedQueriesAsync(database);
+        await using var connection = new SqliteConnection($"Data Source={database.PathName}");
+        await connection.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE Items SET Payload='invalid JSON' WHERE Id='first'";
+        await command.ExecuteNonQueryAsync();
+        await using var loader = database.Store.LoadQueriesAsync(original.User).GetAsyncEnumerator();
+
+        Assert.IsTrue(await loader.MoveNextAsync());
+        Assert.HasCount(3, loader.Current.Queries);
+        Assert.IsEmpty(loader.Current.Items);
+        Assert.IsTrue(loader.Current.IsLoading);
+        await Assert.ThrowsAsync<System.Text.Json.JsonException>(async () => await loader.MoveNextAsync());
+    }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    public async Task CancellingProgressiveLoadReleasesStorageWithoutChangingSavedQueries(int publications)
+    {
+        using var database = new TestDatabase();
+        var original = await CachedQueriesAsync(database);
+        using var cancellation = new CancellationTokenSource();
+        await using (var loader = database.Store.LoadQueriesAsync(original.User,
+            cancellationToken: cancellation.Token).GetAsyncEnumerator())
+        {
+            for (var index = 0; index < publications; index++)
+                Assert.IsTrue(await loader.MoveNextAsync());
+            cancellation.Cancel();
+            await Assert.ThrowsAsync<OperationCanceledException>(async () => await loader.MoveNextAsync());
+        }
+        var restored = await database.Store.LoadAsync(original.User);
+        Assert.HasCount(3, restored.Queries);
+        Assert.HasCount(5, restored.Items);
+    }
+
+    [TestMethod]
+    public async Task LaterCorruptQueryDoesNotPreventFirstQueryLoadingOrPersistPartialState()
+    {
+        using var database = new TestDatabase();
+        var original = await CachedQueriesAsync(database);
+        await using var connection = new SqliteConnection($"Data Source={database.PathName}");
+        await connection.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE Items SET Payload='invalid JSON' WHERE Id='last'";
+        await command.ExecuteNonQueryAsync();
+        var workspace = new WorkspaceService(database.Store, new FakeClient());
+        var published = new List<AccountSnapshot>();
+        workspace.Changed += () =>
+        {
+            if (workspace.Account is { } account) published.Add(account);
+        };
+
+        await Assert.ThrowsAsync<System.Text.Json.JsonException>(() => workspace.OpenAsync(original.User));
+
+        Assert.IsEmpty(published[0].Items);
+        CollectionAssert.AreEqual(new[] { "first" }, published[1].LoadedQueryIds.ToArray());
+        Assert.HasCount(2, published[^1].LoadedQueryIds);
+        Assert.IsNull(workspace.Account, "A failed load must not leave a partial snapshot available for saving.");
+        command.CommandText = "SELECT COUNT(*) FROM SavedQueries";
+        Assert.AreEqual(3L, (long)(await command.ExecuteScalarAsync())!);
+    }
+
+    [TestMethod]
+    public async Task ClosingDuringProgressiveLoadDoesNotRepublishCachedAccount()
+    {
+        using var database = new TestDatabase();
+        var original = await CachedQueriesAsync(database);
+        var workspace = new WorkspaceService(database.Store, new FakeClient());
+        var published = 0;
+        workspace.Changed += () =>
+        {
+            if (workspace.Account is null) return;
+            published++;
+            workspace.Close();
+        };
+
+        await workspace.OpenAsync(original.User);
+
+        Assert.AreEqual(1, published);
+        Assert.IsNull(workspace.Account);
+        Assert.HasCount(3, (await database.Store.LoadAsync(original.User)).Queries);
+    }
+
+    [TestMethod]
+    public async Task CancelledAccountSwitchDoesNotInterruptTheCurrentProgressiveLoad()
+    {
+        using var database = new TestDatabase();
+        var original = await CachedQueriesAsync(database);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var workspace = new WorkspaceService(database.Store, new FakeClient());
+        Task? replacement = null;
+        workspace.Changed += () =>
+        {
+            if (workspace.Account is { IsLoading: true } && replacement is null)
+                replacement = workspace.OpenAsync(new("other", "other"), cancellation.Token);
+        };
+
+        await workspace.OpenAsync(original.User);
+        Assert.IsNotNull(replacement);
+        await Assert.ThrowsAsync<OperationCanceledException>(async () => await replacement);
+
+        Assert.AreEqual(original.User, workspace.Account!.User);
+        Assert.IsFalse(workspace.Account.IsLoading);
+        Assert.HasCount(3, workspace.Account.Queries);
+        Assert.HasCount(5, workspace.Account.Items);
+    }
+
+    [TestMethod]
+    public async Task MutationsDuringProgressiveLoadWaitForTheCompleteAccount()
+    {
+        using var database = new TestDatabase();
+        var original = await CachedQueriesAsync(database);
+        var workspace = new WorkspaceService(database.Store, new FakeClient()) { PreferredQueryId = "active" };
+        Task? mutation = null;
+        workspace.Changed += () =>
+        {
+            if (workspace.Account is { IsLoading: true } && mutation is null)
+                mutation = workspace.SaveQueryAsync(null, "Added while loading", "is:issue");
+        };
+
+        await workspace.OpenAsync(original.User);
+        Assert.IsNotNull(mutation);
+        await mutation;
+
+        var restored = await database.Store.LoadAsync(original.User);
+        Assert.HasCount(4, restored.Queries);
+        Assert.HasCount(5, restored.Items);
+        Assert.AreEqual("Added while loading", restored.Queries[^1].Name);
+    }
+
     private static async Task<WorkspaceService> BulkWorkspaceAsync(TestDatabase database)
     {
         var account = new AccountSnapshot { User = new("1", "viewer") };
@@ -318,6 +550,27 @@ public sealed class PersistenceAndWorkspaceTests
         Assert.AreEqual("replacement", workspace.Account!.User.Id);
         Assert.IsTrue(workspace.Account.Queries.All(query => query.Error is null && query.ItemIds.Count == 0));
         Assert.DoesNotContain("revoked", workspace.Progress);
+    }
+
+    [TestMethod]
+    public async Task ReadingInitializedStorageDoesNotWriteToTheDatabase()
+    {
+        using var database = new TestDatabase();
+        var original = await CachedQueriesAsync(database);
+        await database.Store.SetSettingAsync("sample", "value");
+        await using var connection = new SqliteConnection($"Data Source={database.PathName}");
+        await connection.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA data_version";
+        var before = (long)(await command.ExecuteScalarAsync())!;
+
+        Assert.AreEqual("value", await database.Store.GetSettingAsync("sample"));
+        Assert.IsNull(await database.Store.GetSettingAsync("missing"));
+        var restored = await database.Store.LoadAsync(original.User);
+
+        Assert.HasCount(original.Items.Count, restored.Items);
+        Assert.AreEqual(before, (long)(await command.ExecuteScalarAsync())!,
+            "Reading an initialized store must not rewrite its schema version or other data.");
     }
 
     [TestMethod]

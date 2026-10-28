@@ -74,6 +74,12 @@ public sealed record IgnoredAccount(string Login, string? Id = null);
 
 public sealed class AccountSnapshot
 {
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal bool NeedsInitialSave { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsLoading { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public HashSet<string> LoadedQueryIds { get; init; } = [];
     public GitHubUser User { get; set; } = new("", "");
     public List<SavedQuery> Queries { get; set; } = SavedQuery.Defaults();
     public Dictionary<string, TrackedItem> Items { get; set; } = [];

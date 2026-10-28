@@ -107,7 +107,6 @@ public sealed partial class MainPage : Page
     public static Visibility CollapsedWhen(bool value) => Visible(!value);
     public static Symbol ReadActionIcon(bool unread) => unread ? Symbol.Accept : Symbol.Mail;
     public static Visibility TextVisible(string? value) => Visible(HasText(value));
-    public static Visibility WorkspaceVisible(bool settings, bool signedIn) => Visible(!settings && signedIn);
     public static string CountLabel(int count, string noun) => $"{count:N0} {noun}";
     public static Brush TimeBrush(bool unread) => (Brush)Application.Current.Resources[
         unread ? "AccentTextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush"];
@@ -270,7 +269,7 @@ public sealed partial class MainPage : Page
         ToolTipService.SetToolTip(entry.Item, row.IsSavedQuery
             ? $"{row.Name}\n{row.Query.Expression}\n{row.Badge}"
             : $"{row.Name}\n{row.Badge}");
-        AutomationProperties.SetName(entry.Item, $"{row.Name}, " +
+        AutomationProperties.SetName(entry.Item, row.IsLoading ? $"{row.Name}, loading cached items" : $"{row.Name}, " +
             (row.IsSavedQuery ? "" : $"{row.Query.TotalCount} items, ") +
             $"{row.UnreadCount} unread, {row.PendingCount} pending");
     }

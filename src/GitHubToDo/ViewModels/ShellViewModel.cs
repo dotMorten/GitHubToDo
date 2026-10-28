@@ -85,7 +85,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     private async Task LoadColumnMetadataAsync()
     {
         _columnLoadCancellation?.Cancel();
-        if (!IsSignedIn || SelectedQuery is not { } query || !_workspace.ColumnMetadataEnabled) return;
+        if (!IsSignedIn || SelectedQuery is not { IsLoading: false } query || !_workspace.ColumnMetadataEnabled) return;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_session.Token);
         _columnLoadCancellation = cancellation;
         try
@@ -107,7 +107,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(MarkReadCommand), nameof(MarkUnreadCommand), nameof(MarkPreviewReadCommand), nameof(MarkPreviewUnreadCommand), nameof(FlagSelectionCommand), nameof(OpenBrowserCommand), nameof(ToggleItemFollowUpCommand), nameof(ClearFollowUpsCommand))]
     public partial bool IsSignedIn { get; set; }
-    [ObservableProperty] public partial bool IsSettingsOpen { get; set; } = true;
+    [ObservableProperty] public partial bool IsSettingsOpen { get; set; }
     [ObservableProperty] public partial bool IsBusy { get; set; }
     [ObservableProperty] public partial bool IsDeviceFlow { get; set; }
     [ObservableProperty] public partial string DeviceMessage { get; set; } = "";
@@ -127,7 +127,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     [NotifyCanExecuteChangedFor(nameof(MarkReadCommand), nameof(MarkUnreadCommand), nameof(MarkPreviewReadCommand), nameof(MarkPreviewUnreadCommand), nameof(FlagSelectionCommand), nameof(OpenBrowserCommand), nameof(ToggleItemFollowUpCommand), nameof(ClearFollowUpsCommand))]
     [NotifyPropertyChangedFor(nameof(HasSelectedItem))]
     public partial ItemRow? SelectedItem { get; set; }
-    [ObservableProperty] public partial string EmptyMessage { get; set; } = "Sign in to load your saved queries.";
+    [ObservableProperty] public partial string EmptyMessage { get; set; } = "Loading saved queries...";
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SummarizeCommand), nameof(SummarizeUnreadCommand), nameof(ConfirmSummaryModelDownloadCommand))]
     public partial bool IsLocalAiAvailable { get; set; }
@@ -227,7 +227,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         _isInitialized = true;
         await RunAsync(async () =>
         {
-            CheckLocalAi();
+            _ = RunAsync(CheckLocalAiAsync);
             ClientId = Services.BuildInfo.ClientId ?? await _store.GetSettingAsync("oauth-client-id") ?? "";
             IncludePrivate = await _store.GetSettingAsync("oauth-private") == "true";
             IncludeProjects = await _store.GetSettingAsync("oauth-projects") == "true";
@@ -249,21 +249,29 @@ public partial class ShellViewModel : ObservableObject, IDisposable
             await OpenAccountAsync(user, _session.Token);
             await PollAsync();
         });
+        if (!IsSignedIn) IsSettingsOpen = true;
     }
 
     private async Task OpenAccountAsync(GitHubUser user, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+        if (_workspace.Account is { IsLoading: false } account && account.User == user) return;
         await _workspace.OpenAsync(user, ct);
         ct.ThrowIfCancellationRequested();
         await _store.SetSettingAsync("active-user-id", user.Id, ct);
         await _store.SetSettingAsync("active-user-login", user.Login, ct);
+        ApplyAccount(user);
+        UpdateProjection();
+        _timer.Start();
+    }
+
+    private void ApplyAccount(GitHubUser user)
+    {
         IsSignedIn = true;
         AccountLabel = (_isDemo ? "DEMO · " : "") + $"Signed in as @{user.Login}";
         AccountLogin = user.Login;
         IsSettingsOpen = false;
         IgnoredLogins = string.Join(Environment.NewLine, _workspace.Account!.IgnoredAccounts.Select(a => a.Login));
-        UpdateProjection();
-        _timer.Start();
     }
 
     private async Task<string> GetAccessTokenAsync(CancellationToken ct)
@@ -353,9 +361,11 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         SelectedItem is { Item.HasBaseline: true };
     private bool CanSummarizeUnread() => CanSummarize() && SelectedItem is { UnreadActivities.Count: > 0 };
 
-    private void CheckLocalAi()
+    private async Task CheckLocalAiAsync()
     {
-        var availability = LocalAiSummarizer.GetAvailability();
+        var ct = _session.Token;
+        var availability = await Task.Run(LocalAiSummarizer.GetAvailability, ct);
+        ct.ThrowIfCancellationRequested();
         LocalAiDescription = availability.Description;
         IsLocalAiAvailable = availability.Available;
     }
@@ -586,7 +596,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         if (!IsSignedIn) return;
         await RunAsync(async () =>
         {
-            CheckLocalAi();
+            await CheckLocalAiAsync();
             _activeRefreshes++;
             IsBusy = true;
             Status = "Refresh queued — cached content remains available.";
@@ -732,11 +742,13 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     private void WorkspaceChanged()
     {
         if (_isDisposed || Interlocked.Exchange(ref _isProjectionQueued, 1) != 0) return;
-        if (!_dispatcher.TryEnqueue(() =>
+        if (!_dispatcher.TryEnqueue(DispatcherQueuePriority.Low, () =>
         {
             Interlocked.Exchange(ref _isProjectionQueued, 0);
             if (_isDisposed) return;
             Status = _workspace.Progress;
+            if (_workspace.Account is { } account && (!IsSignedIn || account.User.Login != AccountLogin))
+                ApplyAccount(account.User);
             UpdateProjection();
         })) Interlocked.Exchange(ref _isProjectionQueued, 0);
     }
@@ -744,14 +756,29 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     public void UpdateProjection()
     {
         var account = _workspace.Account;
-        if (account is null || !IsSignedIn) return;
+        if (account is null)
+        {
+            _lastProjectedAccount = null;
+            SelectedQuery = null;
+            SelectedItem = null;
+            Items.Clear();
+            Queries.Clear();
+            QueriesChanged?.Invoke();
+            return;
+        }
+        if (!IsSignedIn) return;
         // Progress-only events do not change the snapshot or any displayed rows.
         if (ReferenceEquals(account, _lastProjectedAccount)) return;
         _lastProjectedAccount = account;
-        var queryId = SelectedQuery?.Id;
+        var queryId = SelectedQuery?.Id ?? _workspace.PreferredQueryId;
+        var wasLoading = SelectedQuery?.IsLoading == true;
         _rows.UpdateQueries(account);
         var selectedQuery = Queries.FirstOrDefault(q => q.Id == queryId) ?? Queries.FirstOrDefault();
-        if (ReferenceEquals(SelectedQuery, selectedQuery)) UpdateItems();
+        if (ReferenceEquals(SelectedQuery, selectedQuery))
+        {
+            UpdateItems();
+            if (wasLoading && selectedQuery is { IsLoading: false }) _ = LoadColumnMetadataAsync();
+        }
         else SelectedQuery = selectedQuery;
         var unresolved = account.IgnoredAccounts.Where(a => a.Id is null).Select(a => a.Login).ToArray();
         IgnoredStatus = unresolved.Length == 0 ? "All accounts resolved to stable GitHub IDs." :
@@ -791,6 +818,11 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         _preview.Update(SelectedItem);
         UpdateSelectionState();
         if (SelectedQuery is not { } row || account is null) return;
+        if (row.IsLoading)
+        {
+            EmptyMessage = "Loading cached items...";
+            return;
+        }
         if (!row.IsSavedQuery)
         {
             EmptyMessage = Items.Count == 0 ? "No follow-ups. Flag an item or a comment to find it here." : "";
