@@ -7,6 +7,9 @@
     xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
     xmlns:markdown="using:CommunityToolkit.WinUI.UI.Controls"
     xmlns:tabular="using:Microsoft.UI.Xaml.Controls.Tabular"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
     Background="Transparent"
     Loaded="Page_Loaded" SizeChanged="Page_SizeChanged">
     <Page.Resources>
@@ -544,7 +547,7 @@
                                                                    Visibility="{x:Bind local:MainPage.TextVisible(ViewModel.SummaryStatus), Mode=OneWay}"
                                                                    Foreground="{x:Bind local:MainPage.SummaryStatusBrush(ViewModel.SummaryFailed), Mode=OneWay}"
                                                                    AutomationProperties.AutomationId="SummaryStatus" AutomationProperties.LiveSetting="Polite" />
-                                                        <markdown:MarkdownTextBlock Text="{x:Bind ViewModel.Summary, Mode=OneWay}" Style="{StaticResource DetailsMarkdownStyle}"
+                                                        <local:MarkdownView Text="{x:Bind ViewModel.Summary, Mode=OneWay}" Style="{StaticResource DetailsMarkdownStyle}"
                                                                    LinkClicked="Markdown_LinkClicked" ImageResolving="Markdown_ImageResolving"
                                                                    AutomationProperties.AutomationId="SummaryMarkdown" AutomationProperties.Name="Local AI summary of the previewed discussion" />
                                                     </StackPanel>
@@ -660,7 +663,7 @@
                                                                     <FontIcon Glyph="&#xE7C1;" FontSize="16" />
                                                                 </ToggleButton>
                                                             </StackPanel>
-                                                            <markdown:MarkdownTextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2,4,0"
+                                                            <local:MarkdownView Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2,4,0"
                                                                        Text="{x:Bind Body, Mode=OneWay}" Style="{StaticResource DetailsMarkdownStyle}"
                                                                        LinkClicked="Markdown_LinkClicked" ImageResolving="Markdown_ImageResolving"
                                                                        AutomationProperties.AutomationId="{x:Bind AutomationId, Mode=OneWay}"
@@ -682,7 +685,7 @@
                                                         <TextBlock Text="Original description" VerticalAlignment="Center" />
                                                     </StackPanel>
                                                 </Expander.Header>
-                                                <markdown:MarkdownTextBlock Text="{x:Bind ViewModel.SelectedItem.Item.Body, Mode=OneWay, FallbackValue=''}"
+                                                <local:MarkdownView Text="{x:Bind ViewModel.SelectedItem.Item.Body, Mode=OneWay, FallbackValue=''}"
                                                            Style="{StaticResource DetailsMarkdownStyle}" LinkClicked="Markdown_LinkClicked"
                                                            ImageResolving="Markdown_ImageResolving" AutomationProperties.AutomationId="DescriptionMarkdown"
                                                            AutomationProperties.Name="Selected item description" />
@@ -713,7 +716,7 @@
                     </Grid>
                 </Grid>
 
-                <ScrollViewer Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsSettingsOpen), Mode=OneWay}" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsSettingsOpen), Mode=OneWay}" d:Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Margin="36,28,36,36" MaxWidth="1000" Spacing="4">
                         <Grid Margin="0,0,0,8">
                             <TextBlock Text="Settings" Style="{ThemeResource TitleTextBlockStyle}" VerticalAlignment="Center" />
