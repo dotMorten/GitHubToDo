@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory)][int]$AppPid,
-    [ValidateSet('setup', 'demo', 'resume', 'layout', 'table', 'inbox', 'reading', 'queries', 'builder', 'polling', 'refresh')][string]$Mode = 'demo',
+    [ValidateSet('setup', 'demo', 'resume', 'layout', 'table', 'inbox', 'reading', 'queries', 'builder', 'editor', 'polling', 'refresh')][string]$Mode = 'demo',
     [Parameter(Mandatory)][string]$ArtifactDirectory,
     [int]$ExpectedUnread = 2
 )
@@ -179,7 +179,7 @@ try {
     if (-not ($windows | Where-Object { $_.hwnd -and $_.width -gt 0 })) { throw 'No responsive application window.' }
     $hwnd = [string]($windows | Where-Object { $_.hwnd -and $_.title -eq 'GitHubToDo' } | Select-Object -First 1).hwnd
     if (-not $hwnd) { throw 'No GitHubToDo main window.' }
-    if ($Mode -ne 'setup') {
+    if ($Mode -notin @('setup', 'editor')) {
         Invoke-Ui @('wait-for', 'DemoBanner', '-p', 'IsOffscreen', '--value', 'False', '-t', '5000') | Out-Null
     }
     if ($Mode -eq 'setup') {
@@ -193,6 +193,41 @@ try {
             Invoke-Ui @('wait-for', 'SignIn')
         }
         Assert-Ui 'Setup screenshot' { Save-Image 'setup.png' }
+    } elseif ($Mode -eq 'editor') {
+        Assert-Ui 'New query opens with examples and selectable qualifier values' {
+            Invoke-Ui @('invoke', 'AddQuerySidebar')
+            Invoke-Ui @('wait-for', 'QueryName', '--value', '')
+            Invoke-Ui @('wait-for', 'is:pr is:open', '--type', 'Hyperlink', '--root', 'QueryEditor')
+            Invoke-Ui @('wait-for', 'QualifierChoice', '--value', 'issue')
+            Save-Image '01-new-query.png'
+            Invoke-Ui @('scroll-into-view', 'Qualifier_author')
+            Invoke-Ui @('click', 'Qualifier_author')
+            Invoke-Ui @('wait-for', 'author:@me', '--type', 'Hyperlink', '--root', 'QueryEditor')
+            Invoke-Ui @('wait-for', 'is:pr is:open', '--type', 'Hyperlink', '--root', 'QueryEditor', '--gone')
+            Invoke-Ui @('wait-for', 'QualifierValue', '--value', '@me')
+            Invoke-Ui @('scroll-into-view', 'Qualifier_archived')
+            Invoke-Ui @('click', 'Qualifier_archived')
+            Invoke-Ui @('wait-for', 'archived:false', '--type', 'Hyperlink', '--root', 'QueryEditor')
+            Invoke-Ui @('wait-for', 'QualifierChoice', '--value', 'true')
+            Save-Image '02-qualifier-values.png'
+            Invoke-Ui @('invoke', 'Cancel', '--type', 'Button', '--root', 'QueryEditor')
+            Invoke-Ui @('wait-for', 'QueryEditor', '--gone')
+        }
+        Assert-Ui 'Edit query opens repeatedly and Cancel preserves its expression' {
+            $expression = (Invoke-Ui @('get-value', 'QuerySearchExpression', '--json') | ConvertFrom-Json).text
+            if (-not $expression) { throw 'No saved query is selected.' }
+            1..2 | ForEach-Object {
+                Open-QueryMenu
+                Invoke-Ui @('invoke', 'EditQuery')
+                Invoke-Ui @('wait-for', 'QueryExpression', '--value', $expression)
+                Invoke-Ui @('wait-for', 'is:pr is:open', '--type', 'Hyperlink', '--root', 'QueryEditor')
+                Invoke-Ui @('wait-for', 'QualifierChoice', '--value', 'issue')
+                if ($_ -eq 1) { Save-Image '03-edit-query.png' }
+                Invoke-Ui @('invoke', 'Cancel', '--type', 'Button', '--root', 'QueryEditor')
+                Invoke-Ui @('wait-for', 'QueryEditor', '--gone')
+                Invoke-Ui @('wait-for', 'QuerySearchExpression', '--value', $expression)
+            }
+        }
     } elseif ($Mode -in @('polling', 'refresh')) {
         Assert-Ui 'Application displays the saved query instead of refresh diagnostics' {
             Invoke-Ui @('wait-for', 'ApplicationStatus', '--value', 'Checked at', '--contains', '-t', '10000')
@@ -337,6 +372,8 @@ try {
             Invoke-Ui @('wait-for', 'QualifierList')
             Invoke-Ui @('wait-for', 'Qualifier_is')
             Invoke-Ui @('wait-for', 'QualifierSummary', '-p', 'Name', '--value', 'Filters by kind', '--contains')
+            Invoke-Ui @('wait-for', 'is:pr is:open', '--type', 'Hyperlink', '--root', 'QueryEditor')
+            Invoke-Ui @('wait-for', 'QualifierChoice', '--value', 'issue')
             Invoke-Ui @('wait-for', 'QueryPreviewStatus', '-p', 'Name', '--value', 'Build or describe', '--contains')
             if (-not ((Test-UiElement 'GenerateQuery') -or (Test-UiElement 'QueryAiUnavailable'))) {
                 throw 'Neither AI generation nor its unavailability notice is shown.'
@@ -352,6 +389,8 @@ try {
         Assert-Ui 'Adding a documented qualifier writes valid syntax and previews matches' {
             Invoke-Ui @('click', 'Qualifier_author')
             Invoke-Ui @('wait-for', 'QualifierSummary', '-p', 'Name', '--value', 'author', '--contains')
+            Invoke-Ui @('wait-for', 'author:@me', '--type', 'Hyperlink', '--root', 'QueryEditor')
+            Invoke-Ui @('wait-for', 'is:pr is:open', '--type', 'Hyperlink', '--root', 'QueryEditor', '--gone')
             Invoke-Ui @('set-value', 'QualifierValue', '@me')
             Invoke-Ui @('invoke', 'AddQualifier')
             Invoke-Ui @('wait-for', 'QueryExpression', '--value', 'author:@me')
