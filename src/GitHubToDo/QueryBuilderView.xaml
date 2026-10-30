@@ -235,7 +235,7 @@
                         <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap">
                             <Run Text="Syntax " /><Run Text="{x:Bind ViewModel.SelectedQualifier.Syntax, Mode=OneWay, FallbackValue=''}" FontFamily="{StaticResource QueryFont}" />
                         </TextBlock>
-                        <ItemsControl ItemsSource="{x:Bind ViewModel.SelectedQualifier.Examples, Mode=OneWay}" AutomationProperties.AutomationId="QualifierExamples">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.QualifierExamples, Mode=OneWay}" AutomationProperties.AutomationId="QualifierExamples">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <StackPanel Orientation="Vertical" Spacing="0" />

@@ -74,8 +74,9 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
 
     public bool HasQualifierChoices => SelectedQualifier?.Values is { Count: > 0 };
     public bool HasFreeValue => SelectedQualifier is not null && !HasQualifierChoices;
-    public IReadOnlyList<string> QualifierChoices => SelectedQualifier?.Values ?? [];
-    public string QualifierExamples => SelectedQualifier is null ? "" : string.Join("\n", SelectedQualifier.Examples);
+    // Keep Core's read-only collection implementations behind the managed/WinRT boundary.
+    public ObservableCollection<string> QualifierChoices { get; } = [];
+    public ObservableCollection<string> QualifierExamples { get; } = [];
     public string QualifierHeading => SelectedQualifier is null ? "" : $"{SelectedQualifier.Name}:";
     public string QualifierValueHint => SelectedQualifier?.Kind switch
     {
@@ -102,6 +103,12 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
     {
         QualifierError = "";
         ExcludeQualifier = false;
+        QualifierChoices.Clear();
+        QualifierExamples.Clear();
+        if (value?.Values is { } choices)
+            foreach (var choice in choices) QualifierChoices.Add(choice);
+        if (value is not null)
+            foreach (var example in value.Examples) QualifierExamples.Add(example);
         QualifierValue = value switch
         {
             { Values.Count: > 0 } => value.Values[0],
@@ -110,8 +117,6 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
         };
         OnPropertyChanged(nameof(HasQualifierChoices));
         OnPropertyChanged(nameof(HasFreeValue));
-        OnPropertyChanged(nameof(QualifierChoices));
-        OnPropertyChanged(nameof(QualifierExamples));
         OnPropertyChanged(nameof(QualifierHeading));
         OnPropertyChanged(nameof(QualifierValueHint));
     }
