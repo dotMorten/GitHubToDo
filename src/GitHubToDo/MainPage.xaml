@@ -703,7 +703,7 @@
                                 </Grid>
 
                                 <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Margin="24" IsHitTestVisible="False"
-                                            Visibility="{x:Bind local:MainPage.CollapsedWhen(ViewModel.HasSelectedItem), Mode=OneWay}">
+                                            Visibility="{x:Bind local:MainPage.CollapsedWhen(ViewModel.HasSelectedItem), Mode=OneWay}" d:Visibility="Collapsed">
                                     <Viewbox Width="56" Height="56">
                                         <PathIcon x:Name="EmptyDetailsIcon" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                     </Viewbox>
@@ -756,7 +756,7 @@
 
                         <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,8,0,0"
                                 BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
-                                Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsDeviceFlow), Mode=OneWay}">
+                                Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsDeviceFlow), Mode=OneWay}" d:Visibility="Collapsed">
                             <StackPanel Spacing="12">
                                 <TextBlock Text="Finish signing in on GitHub" Style="{ThemeResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="{x:Bind ViewModel.DeviceMessage, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True"
