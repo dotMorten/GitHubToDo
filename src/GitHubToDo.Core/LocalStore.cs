@@ -23,8 +23,10 @@ public sealed class LocalStore
         {
             using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA user_version";
-            if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) > 2)
+            var version = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+            if (version > 2)
                 throw new InvalidDataException("This data was created by a newer GitHubToDo version. Update the app before opening it.");
+            if (version == 2) return connection;
             command.CommandText = """
                 CREATE TABLE IF NOT EXISTS Settings (Key TEXT PRIMARY KEY, Value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS SavedQueries (Account TEXT NOT NULL, Id TEXT NOT NULL,
@@ -82,38 +84,116 @@ public sealed class LocalStore
 
     public async Task<AccountSnapshot> LoadAsync(GitHubUser user, CancellationToken cancellationToken = default)
     {
-        await gate.WaitAsync(cancellationToken);
+        AccountSnapshot? loaded = null;
+        await foreach (var snapshot in LoadQueriesAsync(user, cancellationToken: cancellationToken))
+            loaded = snapshot;
+        return loaded!;
+    }
+
+    public async IAsyncEnumerable<AccountSnapshot> LoadQueriesAsync(GitHubUser user, string? preferredQueryId = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await using var connection = await OpenAsync(cancellationToken);
-            using var command = connection.CreateCommand();
-            command.CommandText = "SELECT EXISTS(SELECT 1 FROM Accounts WHERE Id=$account)";
-            command.Parameters.AddWithValue("$account", AccountKey(user));
-            if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) == 0)
-                return new() { User = user };
-            var account = new AccountSnapshot { User = user, Queries = [] };
-            command.CommandText = "SELECT Payload FROM SavedQueries WHERE Account=$account ORDER BY Position";
-            await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+            await using var connection = await Task.Run(() => OpenAsync(cancellationToken), cancellationToken)
+                .ConfigureAwait(false);
+            var header = await Task.Run(async () =>
             {
-                while (await reader.ReadAsync(cancellationToken))
-                    account.Queries.Add(Deserialize(reader.GetString(0), CoreJsonContext.Default.SavedQuery));
+                using var command = connection.CreateCommand();
+                command.CommandText = "SELECT EXISTS(SELECT 1 FROM Accounts WHERE Id=$account)";
+                command.Parameters.AddWithValue("$account", AccountKey(user));
+                if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) == 0)
+                    return null;
+                var account = new AccountSnapshot { User = user, Queries = [] };
+                command.CommandText = "SELECT Payload FROM SavedQueries WHERE Account=$account ORDER BY Position";
+                await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                {
+                    while (await reader.ReadAsync(cancellationToken))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        account.Queries.Add(Deserialize(reader.GetString(0), CoreJsonContext.Default.SavedQuery));
+                    }
+                }
+                command.CommandText = "SELECT Payload FROM IgnoredAccounts WHERE Account=$account";
+                await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                {
+                    while (await reader.ReadAsync(cancellationToken))
+                        account.IgnoredAccounts.Add(Deserialize(reader.GetString(0), CoreJsonContext.Default.IgnoredAccount));
+                }
+                return account;
+            }, cancellationToken).ConfigureAwait(false);
+            if (header is null)
+            {
+                yield return new() { User = user, NeedsInitialSave = true };
+                yield break;
             }
-            command.CommandText = "SELECT Payload FROM Items WHERE Account=$account";
-            await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+
+            header.IsLoading = true;
+            yield return header;
+
+            var loadedQueries = new HashSet<string>();
+            var items = new Dictionary<string, TrackedItem>();
+            foreach (var query in header.Queries.OrderBy(query => query.Id == preferredQueryId ? 0 : 1))
             {
+                var previousItems = items;
+                items = await Task.Run(async () =>
+                {
+                    var loaded = new Dictionary<string, TrackedItem>(previousItems);
+                    using var command = connection.CreateCommand();
+                    command.CommandText = "SELECT Payload FROM Items WHERE Account=$account AND Id=$id";
+                    command.Parameters.AddWithValue("$account", AccountKey(user));
+                    var id = command.Parameters.Add("$id", SqliteType.Text);
+                    foreach (var itemId in query.ItemIds.Distinct())
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (loaded.ContainsKey(itemId)) continue;
+                        id.Value = itemId;
+                        if (await command.ExecuteScalarAsync(cancellationToken) is string payload)
+                        {
+                            var item = Deserialize(payload, CoreJsonContext.Default.TrackedItem);
+                            loaded.Add(item.Id, item);
+                        }
+                    }
+                    return loaded;
+                }, cancellationToken).ConfigureAwait(false);
+                loadedQueries.Add(query.Id);
+                yield return new()
+                {
+                    IsLoading = true,
+                    LoadedQueryIds = new(loadedQueries),
+                    User = user,
+                    Queries = header.Queries,
+                    Items = items,
+                    IgnoredAccounts = header.IgnoredAccounts
+                };
+            }
+
+            // Items outside saved queries can still carry follow-ups or read acknowledgements.
+            var queryItems = items;
+            var allItems = await Task.Run(async () =>
+            {
+                var loaded = new Dictionary<string, TrackedItem>(queryItems);
+                using var command = connection.CreateCommand();
+                command.CommandText = "SELECT Id, Payload FROM Items WHERE Account=$account";
+                command.Parameters.AddWithValue("$account", AccountKey(user));
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
                 while (await reader.ReadAsync(cancellationToken))
                 {
-                    var item = Deserialize(reader.GetString(0), CoreJsonContext.Default.TrackedItem);
-                    account.Items.Add(item.Id, item);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (loaded.ContainsKey(reader.GetString(0))) continue;
+                    var item = Deserialize(reader.GetString(1), CoreJsonContext.Default.TrackedItem);
+                    loaded.Add(item.Id, item);
                 }
-            }
-            command.CommandText = "SELECT Payload FROM IgnoredAccounts WHERE Account=$account";
-            await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                return loaded;
+            }, cancellationToken).ConfigureAwait(false);
+            yield return new()
             {
-                while (await reader.ReadAsync(cancellationToken))
-                    account.IgnoredAccounts.Add(Deserialize(reader.GetString(0), CoreJsonContext.Default.IgnoredAccount));
-            }
-            return account;
+                User = user,
+                Queries = header.Queries,
+                Items = allItems,
+                IgnoredAccounts = header.IgnoredAccounts
+            };
         }
         finally { gate.Release(); }
     }

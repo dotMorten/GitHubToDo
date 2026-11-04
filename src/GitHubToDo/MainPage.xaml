@@ -124,7 +124,7 @@
                 <AutoSuggestBox x:Name="ItemFilterBox" MinWidth="280" MaxWidth="560" HorizontalAlignment="Stretch" VerticalAlignment="Center"
                                 PlaceholderText="Filter this list by title, repository or person   (Ctrl+F)" QueryIcon="Find"
                                 Text="{x:Bind ViewModel.ItemFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                Visibility="{x:Bind local:MainPage.WorkspaceVisible(ViewModel.IsSettingsOpen, ViewModel.IsSignedIn), Mode=OneWay}"
+                                Visibility="{x:Bind local:MainPage.CollapsedWhen(ViewModel.IsSettingsOpen), Mode=OneWay}"
                                 AutomationProperties.Name="Filter items" AutomationProperties.AutomationId="ItemFilter">
                     <AutoSuggestBox.KeyboardAccelerators>
                         <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="FilterAccelerator_Invoked" />
@@ -180,7 +180,7 @@
                 </Button>
             </NavigationView.PaneFooter>
             <Grid>
-                <Grid x:Name="Workspace" Visibility="{x:Bind local:MainPage.WorkspaceVisible(ViewModel.IsSettingsOpen, ViewModel.IsSignedIn), Mode=OneWay}">
+                <Grid x:Name="Workspace" Visibility="{x:Bind local:MainPage.CollapsedWhen(ViewModel.IsSettingsOpen), Mode=OneWay}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />

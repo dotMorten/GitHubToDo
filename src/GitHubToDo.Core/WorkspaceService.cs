@@ -26,16 +26,38 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
     public async Task OpenAsync(GitHubUser user, CancellationToken ct = default)
     {
         await mutationGate.WaitAsync(ct);
+        var openingGeneration = ++generation;
+        var previousAccount = Account is { IsLoading: false } ? Account : null;
+        var previousProgress = Progress;
         try
         {
-            var loaded = await store.LoadAsync(user, ct);
-            await store.SaveAsync(loaded, ct);
-            generation++;
-            Account = loaded;
-            Progress = "Cached data loaded. Refresh to check for new activity.";
+            AccountSnapshot? completed = null;
+            await foreach (var loaded in store.LoadQueriesAsync(user, PreferredQueryId, ct))
+            {
+                ct.ThrowIfCancellationRequested();
+                if (openingGeneration != generation) return;
+                Account = loaded;
+                Progress = loaded.IsLoading ? "Loading cached queries..." :
+                    "Cached data loaded. Refresh to check for new activity.";
+                completed = loaded;
+                Changed?.Invoke();
+            }
+            if (openingGeneration != generation) return;
+            if (completed!.NeedsInitialSave)
+                await Task.Run(() => store.SaveAsync(completed, ct), ct);
+            ct.ThrowIfCancellationRequested();
+        }
+        catch
+        {
+            if (openingGeneration == generation)
+            {
+                Account = previousAccount;
+                Progress = previousProgress;
+                Changed?.Invoke();
+            }
+            throw;
         }
         finally { mutationGate.Release(); }
-        Changed?.Invoke();
     }
 
     public void Close()
@@ -55,6 +77,8 @@ public sealed class WorkspaceService(LocalStore store, IGitHubClient client, Tim
         {
             if (expectedGeneration.HasValue && expectedGeneration.Value != generation)
                 return;
+            if (Account is { IsLoading: true })
+                throw new InvalidOperationException("Wait for cached queries to finish loading.");
             var account = LocalStore.Clone(Account ?? throw new InvalidOperationException("Sign in first."));
             var startGeneration = generation;
             change(account);

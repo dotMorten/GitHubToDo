@@ -9,17 +9,19 @@ public sealed class QueryRow : ObservableObject
     private SavedQuery _query;
     private int _unreadCount;
     private int _pendingCount;
+    private bool _isLoading;
     public SavedQuery Query => _query;
     public string Id => Query.Id;
     public string Name => Query.Name;
     public bool IsSavedQuery => Id != WorkspaceRows.FollowUpsQueryId;
+    public bool IsLoading => _isLoading;
     public int UnreadCount => _unreadCount;
     public int PendingCount => _pendingCount;
-    public string Badge => (IsSavedQuery ? "" : $"{Query.TotalCount} items · ") +
+    public string Badge => IsLoading ? "Loading cached items..." : (IsSavedQuery ? "" : $"{Query.TotalCount} items · ") +
         $"{UnreadCount}" + (PendingCount > 0 ? $" · {PendingCount} pending" : "");
-    public string SidebarBadge => !IsSavedQuery ? Query.TotalCount.ToString() :
+    public string SidebarBadge => IsLoading ? "…" : !IsSavedQuery ? Query.TotalCount.ToString() :
         PendingCount > 0 ? $"{UnreadCount} · …" : UnreadCount.ToString();
-    public bool IsSidebarBadgeVisible => !IsSavedQuery || IsUnread || PendingCount > 0;
+    public bool IsSidebarBadgeVisible => IsLoading || !IsSavedQuery || IsUnread || PendingCount > 0;
     public bool IsUnread => UnreadCount > 0;
 
     public QueryRow(SavedQuery query, AccountSnapshot account)
@@ -34,13 +36,16 @@ public sealed class QueryRow : ObservableObject
         var oldTotal = Query.TotalCount;
         SetProperty(ref _query, query, nameof(Query));
         if (oldName != Name) OnPropertyChanged(nameof(Name));
+        var loadingChanged = SetProperty(ref _isLoading,
+            account.IsLoading && !account.LoadedQueryIds.Contains(query.Id), nameof(IsLoading));
         var ids = query.ItemIds.Distinct().ToArray();
-        var unread = ids.Count(id => account.Items.TryGetValue(id, out var item) &&
+        var unread = IsLoading ? 0 : ids.Count(id => account.Items.TryGetValue(id, out var item) &&
             ReadStatePolicy.Evaluate(item, account.User.Id, account.IgnoredAccounts) == ReadStatus.Unread);
-        var pending = ids.Count(id => !account.Items.TryGetValue(id, out var item) || !item.HasBaseline);
+        var pending = IsLoading ? 0 : ids.Count(id => !account.Items.TryGetValue(id, out var item) || !item.HasBaseline);
         var wasUnread = IsUnread;
         var badgeChanged = SetProperty(ref _unreadCount, unread, nameof(UnreadCount));
         badgeChanged |= oldTotal != query.TotalCount;
+        badgeChanged |= loadingChanged;
         badgeChanged |= SetProperty(ref _pendingCount, pending, nameof(PendingCount));
         if (badgeChanged)
         {
@@ -400,7 +405,7 @@ public sealed class WorkspaceRows
         var desired = new List<QueryRow>();
         var flagged = account.Items.Values.Where(item => item.HasFollowUps).Select(item => item.Id).ToList();
         var followUps = new SavedQuery { Id = FollowUpsQueryId, Name = "Follow-ups", ItemIds = flagged, TotalCount = flagged.Count };
-        foreach (var query in account.Queries.Append(followUps))
+        foreach (var query in account.IsLoading ? account.Queries : account.Queries.Append(followUps))
         {
             if (existing.TryGetValue(query.Id, out var row))
                 row.Update(query, account);
@@ -416,7 +421,8 @@ public sealed class WorkspaceRows
         filter = filter?.Trim();
         var existing = Items.ToDictionary(row => row.Id);
         var desired = new List<ItemRow>();
-        if (query is not null && account is not null)
+        if (query is not null && account is not null &&
+            (!account.IsLoading || account.LoadedQueryIds.Contains(query.Id)))
         {
             foreach (var id in query.ItemIds.Distinct())
             {
