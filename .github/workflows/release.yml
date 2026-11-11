@@ -59,7 +59,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 11.0.x
 
       # The checked-in NuGet.Config points at a private mirror; CI restores from nuget.org.
       - name: Use nuget.org
