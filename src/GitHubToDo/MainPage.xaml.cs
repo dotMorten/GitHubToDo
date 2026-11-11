@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Collections.Specialized;
-using CommunityToolkit.WinUI.UI.Controls;
 using GitHubToDo.Core;
 using GitHubToDo.ViewModels;
 using Microsoft.UI.Xaml;
@@ -11,6 +10,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Controls.Tabular;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using static GitHubToDo.ViewHelpers;
 
 namespace GitHubToDo;
 
@@ -26,7 +26,6 @@ public sealed partial class MainPage : Page
     private readonly Dictionary<string, QueryNavigationEntry> _queryNavigation = [];
     private readonly NavigationViewItemHeader _savedSearchesHeader = new() { Content = "Saved searches" };
     private readonly NavigationViewItemSeparator _followUpSeparator = new();
-    private static readonly Dictionary<string, Microsoft.UI.Xaml.Media.Imaging.BitmapImage> s_avatars = new(StringComparer.OrdinalIgnoreCase);
 
     private sealed record QueryNavigationEntry(NavigationViewItem Item, TextBlock Name, Border Pill, TextBlock Badge)
     {
@@ -34,15 +33,6 @@ public sealed partial class MainPage : Page
     }
     private bool _isUpdatingItemSelection;
     private bool _isItemSelectionQueued;
-    private bool _isDiscussionResetQueued;
-    private bool _discussionPositionPending;
-    private ScrollViewer? _discussionViewer;
-    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _commentReadTimer;
-    private ItemReadSnapshot? _scrollReadSnapshot;
-    private readonly HashSet<string> _reachedCommentIds = [];
-    private double _previousDiscussionOffset;
-    private bool _isDirectManipulation;
-    private readonly HashSet<(string Item, string Activity)> _pendingCommentReads = [];
     private readonly Dictionary<TableViewRow, (FrameworkElement Root, long Token)> _rowAutomation = [];
     private ItemRow? _selectionAnchor;
     private bool _selectionChangedSincePress;
@@ -51,22 +41,7 @@ public sealed partial class MainPage : Page
     public MainPage()
     {
         InitializeComponent();
-        _commentReadTimer = DispatcherQueue.CreateTimer();
-        _commentReadTimer.Interval = TimeSpan.FromMilliseconds(180);
-        _commentReadTimer.IsRepeating = false;
-        _commentReadTimer.Tick += async (_, _) => await CommitScrollReadAsync();
-        DetailsScroll.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler(DetailsScroll_PointerWheelChanged), true);
-        SummarizeIcon.Data = Octicons.Geometry(Octicons.Sparkle);
-        SummarizeUnreadIcon.Data = Octicons.Geometry(Octicons.Sparkle);
-        SummaryHeaderIcon.Data = Octicons.Geometry(Octicons.Sparkle);
         EmptyListIcon.Data = Octicons.Geometry(Octicons.CheckCircle);
-        EmptyDetailsIcon.Data = Octicons.Geometry(Octicons.Inbox);
-        ThemePicker.SelectedIndex = Services.ThemeService.Load() switch
-        {
-            ElementTheme.Light => 1,
-            ElementTheme.Dark => 2,
-            _ => 0,
-        };
         InitializeTableLayout();
         AutomationProperties.SetAutomationId(_savedSearchesHeader, "SavedSearchesHeader");
         AutomationProperties.SetName(_savedSearchesHeader, "Saved searches");
@@ -74,9 +49,6 @@ public sealed partial class MainPage : Page
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
         ViewModel.Items.CollectionChanged += Items_CollectionChanged;
         ViewModel.ItemProjectionStarting += QueueItemSelection;
-        ViewModel.PreviewActivities.CollectionChanged += PreviewActivities_CollectionChanged;
-        ViewModel.ExplicitReadStateChanging += CancelScrollReading;
-        ViewModel.UnreadRestored += RestoreUnreadPosition;
         Unloaded += (_, _) =>
         {
             _appUpdatesCancellation.Cancel();
@@ -84,55 +56,9 @@ public sealed partial class MainPage : Page
             ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
             ViewModel.Items.CollectionChanged -= Items_CollectionChanged;
             ViewModel.ItemProjectionStarting -= QueueItemSelection;
-            ViewModel.PreviewActivities.CollectionChanged -= PreviewActivities_CollectionChanged;
-            ViewModel.ExplicitReadStateChanging -= CancelScrollReading;
-            ViewModel.UnreadRestored -= RestoreUnreadPosition;
-            _commentReadTimer.Stop();
-            DetachDiscussionViewer();
             DetachRowAutomation();
             ViewModel.Dispose();
         };
-    }
-
-    public static bool Not(bool value) => !value;
-    public static Windows.UI.Text.FontWeight UnreadWeight(bool unread) =>
-        unread ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
-    public static bool CanConfigure(bool signedIn, bool deviceFlow) => !signedIn && !deviceFlow;
-    public static string OAuthHeader(bool builtIn) => builtIn ? "GitHub sign-in" : "OAuth app";
-    public static string OAuthDescription(bool builtIn) => builtIn
-        ? "This release signs in through the official GitHub OAuth app. Sign out before changing this configuration."
-        : "Register your own GitHub OAuth app with Device Flow enabled and paste its public client ID. Never enter a client secret. Sign out before changing this configuration.";
-    public static bool HasText(string? value) => !string.IsNullOrWhiteSpace(value);
-    public static Visibility Visible(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
-    public static Visibility CollapsedWhen(bool value) => Visible(!value);
-    public static Symbol ReadActionIcon(bool unread) => unread ? Symbol.Accept : Symbol.Mail;
-    public static Visibility TextVisible(string? value) => Visible(HasText(value));
-    public static string CountLabel(int count, string noun) => $"{count:N0} {noun}";
-    public static Brush TimeBrush(bool unread) => (Brush)Application.Current.Resources[
-        unread ? "AccentTextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush"];
-    public static string SummaryTitle(bool failed, string heading) => failed ? "Couldn't summarize" : heading;
-    public static Brush SummaryAccentBrush(bool failed) => (Brush)Application.Current.Resources[
-        failed ? "SystemFillColorCriticalBrush" : "AccentTextFillColorPrimaryBrush"];
-    public static Brush SummaryStatusBrush(bool failed) => (Brush)Application.Current.Resources[
-        failed ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush"];
-
-    public static ImageSource? Avatar(string? login)
-    {
-#if DEBUG
-        if (App.IsDemo) return null;
-#endif
-        if (string.IsNullOrWhiteSpace(login)) return null;
-        var name = login.EndsWith("[bot]", StringComparison.OrdinalIgnoreCase) ? login[..^5] : login;
-        if (name.Length == 0 || name.Any(c => !(char.IsAsciiLetterOrDigit(c) || c == '-'))) return null;
-        if (!s_avatars.TryGetValue(name, out var image))
-        {
-            image = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri($"https://github.com/{name}.png?size=64"))
-            {
-                DecodePixelWidth = 64, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical
-            };
-            s_avatars[name] = image;
-        }
-        return image;
     }
 
     public UIElement AppTitleBarElement => AppTitleBar;
@@ -354,13 +280,6 @@ public sealed partial class MainPage : Page
         if (QueryActionTarget(sender) is { IsSavedQuery: true } row) await EditQueryAsync(row.Query);
     }
 
-    private void ThemePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (ThemePicker.SelectedItem is not ComboBoxItem { Tag: string tag } || !Enum.TryParse<ElementTheme>(tag, out var theme)) return;
-        Services.ThemeService.Save(theme);
-        if (App.Window is { } window) Services.ThemeService.Apply(window, theme);
-    }
-
     private async Task EditQueryAsync(SavedQuery? query)
     {
         if (_isDialogOpen || !ViewModel.IsSignedIn) return;
@@ -451,19 +370,8 @@ public sealed partial class MainPage : Page
         RestoreLogicalNavigationSelection();
         if (_isNarrowNavigation == true) Navigation.IsPaneOpen = false;
     }
-    private void FocusDetails_Click(object sender, RoutedEventArgs e) => DetailsScroll.Focus(FocusState.Keyboard);
+    private void FocusDetails_Click(object sender, RoutedEventArgs e) => ItemDetails.FocusDiscussion();
     private void FocusList_Click(object sender, RoutedEventArgs e) => ItemList.Focus(FocusState.Keyboard);
-    private async void Markdown_LinkClicked(object? sender, LinkClickedEventArgs e) =>
-        await ViewModel.OpenMarkdownLinkAsync(e.Link);
-
-    private void Markdown_ImageResolving(object? sender, ImageResolvingEventArgs e)
-    {
-        // Do not fetch tracking images, local files, SVGs, or authenticated content
-        // simply because the user selected an item. Null suppresses the image.
-        e.Handled = true;
-        e.Image = null;
-    }
-
     private void ItemList_RightTapped(object sender, RightTappedRoutedEventArgs e)
     {
         if (RowFromSource(e.OriginalSource) is not { } row) return;
@@ -675,217 +583,8 @@ public sealed partial class MainPage : Page
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (args.PropertyName == nameof(ShellViewModel.IsSummaryOpen))
-        {
-            // Pane reflow is not a reading gesture. Do not let a previously armed scroll
-            // observation acknowledge comments just because summary generation changed the layout.
-            CancelScrollReading();
-            if (ViewModel.IsSummaryOpen)
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    if (ViewModel.IsSummaryOpen) CloseSummaryButton.Focus(FocusState.Programmatic);
-                });
-        }
         if (args.PropertyName != nameof(ShellViewModel.SelectedItem)) return;
         QueueItemSelection();
-        RestoreUnreadPosition();
-    }
-
-    private void SummaryLayout_SizeChanged(object sender, SizeChangedEventArgs args)
-    {
-        // Preserve a useful discussion column; on smaller windows use the same right-hand pane
-        // as an overlay rather than squeezing or clipping the thread.
-        CancelScrollReading();
-        // Keep the same pane alive across the breakpoint. SplitView's native light-dismiss
-        // transition can asynchronously close a pane while switching Inline/Overlay modes.
-        // A Grid placement change cannot dismiss it or cancel a running summary on resize.
-        var isInline = args.NewSize.Width >= 800;
-        Grid.SetColumn(SummaryPaneBorder, isInline ? 1 : 0);
-        SummaryPaneBorder.HorizontalAlignment = isInline ? HorizontalAlignment.Stretch : HorizontalAlignment.Right;
-        SummaryPaneBorder.Width = Math.Max(0, Math.Min(360, args.NewSize.Width));
-    }
-
-    private void SummaryPane_KeyDown(object sender, KeyRoutedEventArgs args)
-    {
-        if (args.Key == Windows.System.VirtualKey.Escape && ViewModel.IsSummaryOpen)
-        {
-            ViewModel.CloseSummaryCommand.Execute(null);
-            args.Handled = true;
-        }
-    }
-
-    private void CancelScrollReading()
-    {
-        _commentReadTimer.Stop();
-        _scrollReadSnapshot = null;
-        _reachedCommentIds.Clear();
-    }
-
-    private void RestoreUnreadPosition()
-    {
-        CancelScrollReading();
-        _discussionPositionPending = true;
-        QueueDiscussionReset();
-    }
-
-    private void QueueDiscussionReset()
-    {
-        if (_isDiscussionResetQueued || !_discussionPositionPending) return;
-        _isDiscussionResetQueued = true;
-        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-        {
-            _isDiscussionResetQueued = false;
-            if (ViewModel.SelectedItem is { Item.HasBaseline: false }) return;
-            var target = ViewModel.PreviewActivities.FirstOrDefault(row => row.IsUnread) ??
-                (ViewModel.SelectedQuery?.IsSavedQuery == false ? ViewModel.PreviewActivities.FirstOrDefault(row => row.IsFlagged) : null) ??
-                ViewModel.PreviewActivities.FirstOrDefault();
-            if (target is null)
-            {
-                DiscussionHeader.StartBringIntoView(new BringIntoViewOptions
-                {
-                    AnimationDesired = false, VerticalAlignmentRatio = 0,
-                    TargetRect = new Windows.Foundation.Rect(0, 0, 1, 1)
-                });
-                _discussionPositionPending = false;
-                return;
-            }
-            DetailsScroll.ScrollIntoView(target, ScrollIntoViewAlignment.Leading);
-            DetailsScroll.UpdateLayout();
-            if (DetailsScroll.ContainerFromItem(target) is FrameworkElement container)
-                container.StartBringIntoView(new BringIntoViewOptions
-                {
-                    AnimationDesired = false, VerticalAlignmentRatio = 0,
-                    TargetRect = new Windows.Foundation.Rect(0, 0, 1, 1)
-                });
-            _discussionPositionPending = false;
-        })) _isDiscussionResetQueued = false;
-    }
-
-    private void PreviewActivities_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs args) => QueueDiscussionReset();
-
-    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root) where T : DependencyObject
-    {
-        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
-        {
-            var child = VisualTreeHelper.GetChild(root, index);
-            if (child is T match) yield return match;
-            foreach (var descendant in VisualDescendants<T>(child)) yield return descendant;
-        }
-    }
-
-    private void DetailsScroll_Loaded(object sender, RoutedEventArgs e)
-    {
-        DetachDiscussionViewer();
-        _discussionViewer = VisualDescendants<ScrollViewer>(DetailsScroll).FirstOrDefault();
-        if (_discussionViewer is null) return;
-        _previousDiscussionOffset = _discussionViewer.VerticalOffset;
-        _discussionViewer.ViewChanged += DiscussionViewer_ViewChanged;
-        _discussionViewer.DirectManipulationStarted += DiscussionViewer_DirectManipulationStarted;
-        _discussionViewer.DirectManipulationCompleted += DiscussionViewer_DirectManipulationCompleted;
-        foreach (var bar in VisualDescendants<ScrollBar>(_discussionViewer))
-            if (bar.Orientation == Orientation.Vertical) bar.Scroll += DiscussionScrollbar_Scroll;
-    }
-
-    private void DetachDiscussionViewer()
-    {
-        if (_discussionViewer is null) return;
-        _discussionViewer.ViewChanged -= DiscussionViewer_ViewChanged;
-        _discussionViewer.DirectManipulationStarted -= DiscussionViewer_DirectManipulationStarted;
-        _discussionViewer.DirectManipulationCompleted -= DiscussionViewer_DirectManipulationCompleted;
-        foreach (var bar in VisualDescendants<ScrollBar>(_discussionViewer))
-            bar.Scroll -= DiscussionScrollbar_Scroll;
-        _discussionViewer = null;
-    }
-
-    private void DiscussionViewer_DirectManipulationStarted(object? sender, object args) => _isDirectManipulation = true;
-    private void DiscussionViewer_DirectManipulationCompleted(object? sender, object args) => _isDirectManipulation = false;
-
-    private void DiscussionScrollbar_Scroll(object sender, ScrollEventArgs args)
-    {
-        if (args.NewValue > _previousDiscussionOffset) ArmCommentReading();
-    }
-
-    private void DetailsScroll_PointerWheelChanged(object sender, PointerRoutedEventArgs args)
-    {
-        var properties = args.GetCurrentPoint(DetailsScroll).Properties;
-        if (!properties.IsHorizontalMouseWheel && properties.MouseWheelDelta < 0) ArmCommentReading();
-    }
-
-    private void DetailsScroll_PreviewKeyDown(object sender, KeyRoutedEventArgs args)
-    {
-        if (args.Key == Windows.System.VirtualKey.Space)
-            for (var source = args.OriginalSource as DependencyObject; source is not null; source = VisualTreeHelper.GetParent(source))
-                if (source is ButtonBase) return;
-        if (args.Key is Windows.System.VirtualKey.Down or Windows.System.VirtualKey.PageDown or Windows.System.VirtualKey.End ||
-            (args.Key == Windows.System.VirtualKey.Space && !IsKeyDown(Windows.System.VirtualKey.Shift)))
-            ArmCommentReading();
-    }
-
-    private void ArmCommentReading()
-    {
-        if (_discussionPositionPending || _isDiscussionResetQueued || ViewModel.IsSettingsOpen) return;
-        _scrollReadSnapshot ??= ViewModel.PreviewReadThrough(ViewModel.PreviewActivities.Count - 1);
-        if (_scrollReadSnapshot is null) return;
-        ObserveCommentBottoms();
-        _commentReadTimer.Stop();
-        _commentReadTimer.Start();
-    }
-
-    private void DiscussionViewer_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
-    {
-        if (_discussionViewer is not { } viewer) return;
-        if (_isDirectManipulation && viewer.VerticalOffset > _previousDiscussionOffset) ArmCommentReading();
-        if (_scrollReadSnapshot is not null && !_discussionPositionPending && viewer.VerticalOffset >= _previousDiscussionOffset)
-        {
-            ObserveCommentBottoms();
-            _commentReadTimer.Stop();
-            _commentReadTimer.Start();
-        }
-        _previousDiscussionOffset = viewer.VerticalOffset;
-    }
-
-    private void ObserveCommentBottoms()
-    {
-        if (_discussionViewer is not { ViewportHeight: > 0 } viewer || DetailsScroll.ItemsPanelRoot is not { } panel) return;
-        var reachedIndex = -1;
-        foreach (var container in panel.Children.OfType<ListViewItem>())
-        {
-            if (container.Content is not ActivityRow row || container.ActualHeight <= 0) continue;
-            var bottom = container.TransformToVisual(viewer).TransformPoint(new Windows.Foundation.Point(0, container.ActualHeight)).Y;
-            if (bottom <= viewer.ViewportHeight + 0.5)
-                reachedIndex = Math.Max(reachedIndex, ViewModel.PreviewActivities.IndexOf(row));
-        }
-        if (ViewModel.PreviewReadThrough(reachedIndex) is { } reached)
-            _reachedCommentIds.UnionWith(reached.ActivityIds);
-    }
-
-    private async Task CommitScrollReadAsync()
-    {
-        var observed = _scrollReadSnapshot;
-        var reached = _reachedCommentIds.ToHashSet();
-        _scrollReadSnapshot = null;
-        _reachedCommentIds.Clear();
-        if (_discussionPositionPending || ViewModel.IsSettingsOpen || observed is null ||
-            ViewModel.SelectedItem?.Id != observed.ItemId) return;
-        var current = ViewModel.PreviewActivities.Where(row => row.IsUnread).Select(row => row.Id).ToHashSet();
-        var ids = observed.ActivityIds.Where(id => reached.Contains(id) && current.Contains(id) &&
-            _pendingCommentReads.Add((observed.ItemId, id))).ToArray();
-        if (ids.Length == 0) return;
-        try { await ViewModel.MarkCommentsReadAsync(new(observed.ItemId, ids)); }
-        finally { foreach (var id in ids) _pendingCommentReads.Remove((observed.ItemId, id)); }
-    }
-
-    private async void CommentFollowUp_Click(object sender, RoutedEventArgs args)
-    {
-        if (sender is not ToggleButton { DataContext: ActivityRow row } button || ViewModel.SelectedItem is not { } item) return;
-        await ViewModel.SetCommentFollowUpAsync(item.Id, row.Id, button.IsChecked == true);
-        if (ReferenceEquals(button.DataContext, row)) button.IsChecked = row.IsFlagged;
-    }
-
-    private async void CommentReadState_Click(object sender, RoutedEventArgs args)
-    {
-        if (sender is not FrameworkElement { DataContext: ActivityRow row } || ViewModel.SelectedItem is not { } item) return;
-        await ViewModel.SetCommentReadStateAsync(item.Id, row.Id, row.IsUnread);
     }
 
     private void Items_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs args) => QueueItemSelection();

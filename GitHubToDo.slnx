@@ -1,9 +1,20 @@
 <Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="ARM64" />
+  </Configurations>
   <Folder Name="/src/">
-    <Project Path="src/GitHubToDo.Core/GitHubToDo.Core.csproj" />
-    <Project Path="src/GitHubToDo/GitHubToDo.csproj" />
+    <Project Path="src/GitHubToDo.Core/GitHubToDo.Core.csproj">
+      <Platform Solution="*|ARM64" Project="ARM64" />
+    </Project>
+    <Project Path="src/GitHubToDo/GitHubToDo.csproj">
+      <Platform Solution="*|ARM64" Project="ARM64" />
+      <Deploy Solution="*|ARM64" />
+    </Project>
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/GitHubToDo.Core.Tests/GitHubToDo.Core.Tests.csproj" />
+    <Project Path="tests/GitHubToDo.Core.Tests/GitHubToDo.Core.Tests.csproj">
+      <Platform Solution="*|ARM64" Project="ARM64" />
+    </Project>
   </Folder>
 </Solution>

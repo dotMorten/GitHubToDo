@@ -50,7 +50,7 @@ If an organization's OAuth app restrictions block standard metadata, public issu
 
 ### Describe it instead of writing it
 
-With a supported on-device Windows AI model, describe what you want to follow in plain language and let GitHubToDo draft the search. It checks the generated query against GitHub and can retry when validation fails. You can inspect the query, edit it, and preview the results before saving.
+With AI enabled in Settings, describe what you want to follow in plain language and let GitHubToDo draft the search. It checks the generated query against GitHub and can retry when validation fails. You can inspect the query, edit it, and preview the results before saving.
 
 ![GitHubToDo query builder with a natural-language prompt, an AI-generated search, a qualifier reference, and a results preview](art/ai-queries.png)
 
@@ -60,11 +60,13 @@ AI can get the intent wrong even when a query is valid. Always review the genera
 
 Open an issue or pull request and choose **Summarize unread** to catch up on its unread comments and reviews, or **Summarize** for its original description and entire loaded discussion, including read comments (ignored accounts are excluded). Both summarize the previewed item, not other selected rows. Generated text streams into a right-hand pane alongside the discussion; on narrow windows the pane overlays it. Close the pane with **×** to cancel generation and hide it. Long discussions are summarized in parts without silently skipping content; failed or cancelled drafts are cleared.
 
-**AI processing stays on your device.** There's no cloud AI service or AI subscription to configure. Summarizing doesn't mark anything read, and the original conversation stays available so you can check the details.
+Choose **Disabled**, **Local AI**, or **Copilot AI** under **Settings > Artificial intelligence**. Unsupported providers are disabled, with their availability explained below the choices. Without a saved choice, Local AI is selected on supported devices; otherwise AI is disabled. Your selection is saved automatically. When disabled or when the selected provider is unavailable, summary buttons and describe-to-query are hidden. The app never silently switches providers.
+
+**Local AI** keeps prompts on your device. **Copilot AI** sends discussion text and query descriptions to GitHub Copilot and uses your Copilot usage allowance. Copilot requires a supported account signed in to Copilot CLI with the same GitHub login as the app; use **Check availability** after signing in or changing access. An availability check reads account/model metadata without generating a response. Summarizing doesn't mark anything read, and the original conversation stays available so you can check the details.
 
 An unread summary keeps its captured excerpt when you mark the item read, even if generation is still running. New discussion activity or changes to the captured comments invalidate it; closing the pane or opening another item clears it.
 
-Both AI features are optional and require a compatible Windows device. Each request ensures the Windows AI model is ready, and requests share one model instance with serialized access. The instance is released on sign-out or shutdown; a failed or cancelled request discards it so the next request can create a fresh one. If the model isn't ready, GitHubToDo asks for confirmation before Windows downloads it (potentially several GB), then continues the requested AI action. Downloads are managed through Windows Update, and installed models can be removed in **Settings > System > AI Components**. There's no cloud fallback; you can use the inbox and write queries yourself without AI.
+Both AI features are optional. Local AI requests ensure the Windows AI model is ready and share one model instance with serialized access. The instance is released on sign-out, shutdown, or when selecting another provider; a failed or cancelled request discards it so the next request can create a fresh one. If the model isn't ready, GitHubToDo asks for confirmation before Windows downloads it (potentially several GB), then continues the requested AI action. Downloads are managed through Windows Update, and installed models can be removed in **Settings > System > AI Components**. You can use the inbox and write queries yourself without AI.
 
 ## Get started
 

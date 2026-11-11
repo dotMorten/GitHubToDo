@@ -5,106 +5,48 @@
     xmlns:local="using:GitHubToDo"
     xmlns:vm="using:GitHubToDo.ViewModels"
     xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
-    xmlns:markdown="using:CommunityToolkit.WinUI.UI.Controls"
     xmlns:tabular="using:Microsoft.UI.Xaml.Controls.Tabular"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d"
+    mc:Ignorable="d" d:Width="800"
     Background="Transparent"
     Loaded="Page_Loaded" SizeChanged="Page_SizeChanged">
     <Page.Resources>
-        <Style x:Key="DetailsMarkdownStyle" TargetType="markdown:MarkdownTextBlock">
-            <Setter Property="IsTextSelectionEnabled" Value="True" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="WrapCodeBlock" Value="True" />
-            <Setter Property="UseSyntaxHighlighting" Value="False" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-            <Setter Property="LinkForeground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-            <Setter Property="CodeForeground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-            <Setter Property="CodeBackground" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
-            <Setter Property="InlineCodeForeground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-            <Setter Property="InlineCodeBackground" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
-            <Setter Property="QuoteForeground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
-            <Setter Property="QuoteBackground" Value="Transparent" />
-            <Setter Property="QuoteBorderBrush" Value="{ThemeResource ControlStrongStrokeColorDefaultBrush}" />
-            <Setter Property="Header1Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-            <Setter Property="Header2Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-            <Setter Property="Header3Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-            <Setter Property="Header4Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-            <Setter Property="Header5Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-            <Setter Property="Header6Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-            <Setter Property="HorizontalRuleBrush" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
-            <Setter Property="TableBorderBrush" Value="{ThemeResource ControlStrokeColorDefaultBrush}" />
-        </Style>
-        <Style x:Key="CardStyle" TargetType="Border">
-            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
-            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="{StaticResource OverlayCornerRadius}" />
-        </Style>
-        <Style x:Key="ChipStyle" TargetType="Border">
-            <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
-            <Setter Property="BorderBrush" Value="{ThemeResource ControlStrokeColorDefaultBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="12" />
-            <Setter Property="Padding" Value="10,3" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-        <Style x:Key="AccentChipStyle" TargetType="Border">
-            <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
-            <Setter Property="CornerRadius" Value="12" />
-            <Setter Property="Padding" Value="10,3" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-        <Style x:Key="QueryPillUnreadStyle" TargetType="Border">
-            <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
-            <Setter Property="CornerRadius" Value="10" />
-            <Setter Property="MinWidth" Value="22" />
-            <Setter Property="Height" Value="20" />
-            <Setter Property="Padding" Value="7,0" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-        <Style x:Key="QueryPillTextUnreadStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="HorizontalAlignment" Value="Center" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-        <Style x:Key="QueryPillPendingStyle" TargetType="Border">
-            <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
-            <Setter Property="CornerRadius" Value="10" />
-            <Setter Property="MinWidth" Value="22" />
-            <Setter Property="Height" Value="20" />
-            <Setter Property="Padding" Value="7,0" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-        <Style x:Key="QueryPillTextPendingStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="HorizontalAlignment" Value="Center" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-        <Style x:Key="SubtleIconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="Padding" Value="8,6" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-        <Style x:Key="SubtleToggleButtonStyle" TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="Padding" Value="8,6" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-        <Style x:Key="SectionHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
-            <Setter Property="Margin" Value="1,28,0,6" />
-        </Style>
-        <!-- Rows in an app-managed multi-selection; the native TableView only selects one row. -->
-        <Style x:Key="MultiSelectedTableRowStyle" TargetType="tabular:TableViewRow">
-            <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
-        </Style>
+        <ResourceDictionary>
+            <Style x:Key="QueryPillUnreadStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="MinWidth" Value="22" />
+                <Setter Property="Height" Value="20" />
+                <Setter Property="Padding" Value="7,0" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+            <Style x:Key="QueryPillTextUnreadStyle" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="HorizontalAlignment" Value="Center" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+            <Style x:Key="QueryPillPendingStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="MinWidth" Value="22" />
+                <Setter Property="Height" Value="20" />
+                <Setter Property="Padding" Value="7,0" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+            <Style x:Key="QueryPillTextPendingStyle" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="HorizontalAlignment" Value="Center" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+            <!-- Rows in an app-managed multi-selection; the native TableView only selects one row. -->
+            <Style x:Key="MultiSelectedTableRowStyle" TargetType="tabular:TableViewRow">
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+            </Style>
+        </ResourceDictionary>
     </Page.Resources>
 
     <Grid>
@@ -124,7 +66,7 @@
                 <AutoSuggestBox x:Name="ItemFilterBox" MinWidth="280" MaxWidth="560" HorizontalAlignment="Stretch" VerticalAlignment="Center"
                                 PlaceholderText="Filter this list by title, repository or person   (Ctrl+F)" QueryIcon="Find"
                                 Text="{x:Bind ViewModel.ItemFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                Visibility="{x:Bind local:MainPage.CollapsedWhen(ViewModel.IsSettingsOpen), Mode=OneWay}"
+                                Visibility="{x:Bind local:ViewHelpers.CollapsedWhen(ViewModel.IsSettingsOpen), Mode=OneWay}"
                                 AutomationProperties.Name="Filter items" AutomationProperties.AutomationId="ItemFilter">
                     <AutoSuggestBox.KeyboardAccelerators>
                         <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="FilterAccelerator_Invoked" />
@@ -136,7 +78,7 @@
                         ToolTipService.ToolTip="{x:Bind ViewModel.AccountLabel, Mode=OneWay}"
                         AutomationProperties.Name="Account" AutomationProperties.AutomationId="AccountButton">
                     <PersonPicture Width="28" Height="28" DisplayName="{x:Bind ViewModel.AccountLogin, Mode=OneWay}"
-                                   ProfilePicture="{x:Bind local:MainPage.Avatar(ViewModel.AccountLogin), Mode=OneWay}" />
+                                   ProfilePicture="{x:Bind local:ViewHelpers.Avatar(ViewModel.AccountLogin), Mode=OneWay}" />
                     <Button.Flyout>
                         <MenuFlyout Placement="BottomEdgeAlignedRight">
                             <MenuFlyoutItem Text="{x:Bind ViewModel.AccountLabel, Mode=OneWay}" IsEnabled="False" />
@@ -158,7 +100,7 @@
             <InfoBar IsOpen="{x:Bind ViewModel.IsDemo, Mode=OneWay}" Severity="Informational" IsClosable="False" Title="Demo"
                      Message="Isolated local fixture. No OAuth, credentials or GitHub API calls. Every query returns the same three overlapping items."
                      AutomationProperties.AutomationId="DemoBanner" />
-            <InfoBar IsOpen="{x:Bind local:MainPage.HasText(ViewModel.Error), Mode=OneWay}"
+            <InfoBar IsOpen="{x:Bind local:ViewHelpers.HasText(ViewModel.Error), Mode=OneWay}"
                      Severity="Error" IsClosable="False" Message="{x:Bind ViewModel.Error, Mode=OneWay}" />
         </StackPanel>
 
@@ -180,7 +122,7 @@
                 </Button>
             </NavigationView.PaneFooter>
             <Grid>
-                <Grid x:Name="Workspace" Visibility="{x:Bind local:MainPage.CollapsedWhen(ViewModel.IsSettingsOpen), Mode=OneWay}">
+                <Grid x:Name="Workspace" Visibility="{x:Bind local:ViewHelpers.CollapsedWhen(ViewModel.IsSettingsOpen), Mode=OneWay}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
@@ -195,18 +137,18 @@
                                 <TextBlock Text="{x:Bind ViewModel.SelectedQuery.Name, Mode=OneWay, FallbackValue='Saved query'}"
                                            Style="{ThemeResource TitleTextBlockStyle}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                 <Border Style="{StaticResource AccentChipStyle}"
-                                        Visibility="{x:Bind local:MainPage.Visible(ViewModel.SelectedQuery.IsUnread), Mode=OneWay, FallbackValue=Collapsed}">
-                                    <TextBlock Text="{x:Bind local:MainPage.CountLabel(ViewModel.SelectedQuery.UnreadCount, 'unread'), Mode=OneWay, FallbackValue=''}"
+                                        Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.SelectedQuery.IsUnread), Mode=OneWay, FallbackValue=Collapsed}">
+                                    <TextBlock Text="{x:Bind local:ViewHelpers.CountLabel(ViewModel.SelectedQuery.UnreadCount, 'unread'), Mode=OneWay, FallbackValue=''}"
                                                AutomationProperties.AutomationId="QueryUnreadCount"
                                                Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" FontWeight="SemiBold" FontSize="12" />
                                 </Border>
                                 <Border Style="{StaticResource ChipStyle}">
-                                    <TextBlock Text="{x:Bind local:MainPage.CountLabel(ViewModel.Items.Count, 'items'), Mode=OneWay}"
+                                    <TextBlock Text="{x:Bind local:ViewHelpers.CountLabel(ViewModel.Items.Count, 'items'), Mode=OneWay}"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
                                 </Border>
                             </StackPanel>
                             <TextBlock Text="{x:Bind ViewModel.SelectedQuery.Query.Expression, Mode=OneWay, FallbackValue=''}" Style="{ThemeResource CaptionTextBlockStyle}"
-                                       Visibility="{x:Bind local:MainPage.TextVisible(ViewModel.SelectedQuery.Query.Expression), Mode=OneWay, FallbackValue=Collapsed}"
+                                       Visibility="{x:Bind local:ViewHelpers.TextVisible(ViewModel.SelectedQuery.Query.Expression), Mode=OneWay, FallbackValue=Collapsed}"
                                        ToolTipService.ToolTip="{x:Bind ViewModel.SelectedQuery.Query.Expression, Mode=OneWay, FallbackValue=''}"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" MaxLines="3"
                                        AutomationProperties.AutomationId="QuerySearchExpression" />
@@ -284,7 +226,7 @@
                                                           AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}">
                                                         <Border Width="3" CornerRadius="1.5" Margin="0,8" HorizontalAlignment="Left"
                                                                 Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                                                Visibility="{x:Bind local:MainPage.Visible(IsUnread), Mode=OneWay}" />
+                                                                Visibility="{x:Bind local:ViewHelpers.Visible(IsUnread), Mode=OneWay}" />
                                                         <local:ItemStateIcon HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                              StateKey="{x:Bind StateKey, Mode=OneWay}" />
                                                     </Grid>
@@ -296,7 +238,7 @@
                                             <tabular:TableViewTemplateColumn.CellTemplate>
                                                 <DataTemplate x:DataType="vm:ItemRow">
                                                     <StackPanel Spacing="1" Padding="{x:Bind local:TableAppearance.Current.CellPadding, Mode=OneWay}" VerticalAlignment="Center" ToolTipService.ToolTip="{x:Bind Title, Mode=OneWay}">
-                                                        <TextBlock Text="{x:Bind Title, Mode=OneWay}" FontWeight="{x:Bind local:MainPage.UnreadWeight(IsUnread), Mode=OneWay}"
+                                                        <TextBlock Text="{x:Bind Title, Mode=OneWay}" FontWeight="{x:Bind local:ViewHelpers.UnreadWeight(IsUnread), Mode=OneWay}"
                                                                    TextTrimming="CharacterEllipsis" />
                                                         <TextBlock Text="{x:Bind ActivityLine, Mode=OneWay}" Style="{ThemeResource CaptionTextBlockStyle}"
                                                                    Visibility="{x:Bind local:TableAppearance.Current.SecondLineVisibility, Mode=OneWay}"
@@ -312,7 +254,7 @@
                                                 <DataTemplate x:DataType="vm:ItemRow">
                                                     <Grid Padding="8,0" VerticalAlignment="Center">
                                                         <Border Style="{StaticResource QueryPillUnreadStyle}" HorizontalAlignment="Left"
-                                                                Visibility="{x:Bind local:MainPage.Visible(ShowsUnreadCount), Mode=OneWay}">
+                                                                Visibility="{x:Bind local:ViewHelpers.Visible(ShowsUnreadCount), Mode=OneWay}">
                                                             <TextBlock Text="{x:Bind UnreadCountText, Mode=OneWay}" Style="{StaticResource QueryPillTextUnreadStyle}"
                                                                        AutomationProperties.AutomationId="{x:Bind UnreadCountAutomationId, Mode=OneWay}"
                                                                        AutomationProperties.Name="{x:Bind UnreadCountDescription, Mode=OneWay}" />
@@ -350,8 +292,8 @@
                                                 <DataTemplate x:DataType="vm:ItemRow">
                                                     <TextBlock Text="{x:Bind ShortTime, Mode=OneWay}" Margin="8,0" VerticalAlignment="Center"
                                                                Style="{ThemeResource CaptionTextBlockStyle}" ToolTipService.ToolTip="{x:Bind ActivityTime, Mode=OneWay}"
-                                                               Foreground="{x:Bind local:MainPage.TimeBrush(IsUnread), Mode=OneWay}"
-                                                               FontWeight="{x:Bind local:MainPage.UnreadWeight(IsUnread), Mode=OneWay}" />
+                                                               Foreground="{x:Bind local:ViewHelpers.TimeBrush(IsUnread), Mode=OneWay}"
+                                                               FontWeight="{x:Bind local:ViewHelpers.UnreadWeight(IsUnread), Mode=OneWay}" />
                                                 </DataTemplate>
                                             </tabular:TableViewTemplateColumn.CellTemplate>
                                         </tabular:TableViewTemplateColumn>
@@ -361,7 +303,7 @@
                                                 <DataTemplate x:DataType="vm:ItemRow">
                                                     <FontIcon Glyph="&#xE7C1;" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                               Foreground="{ThemeResource FollowUpFlagBrush}" AutomationProperties.AccessibilityView="Raw"
-                                                              Visibility="{x:Bind local:MainPage.Visible(HasFollowUps), Mode=OneWay}" />
+                                                              Visibility="{x:Bind local:ViewHelpers.Visible(HasFollowUps), Mode=OneWay}" />
                                                 </DataTemplate>
                                             </tabular:TableViewTemplateColumn.CellTemplate>
                                         </tabular:TableViewTemplateColumn>
@@ -430,7 +372,7 @@
                                     </tabular:TableView.ContextFlyout>
                                 </tabular:TableView>
                                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" MaxWidth="420" Margin="24" IsHitTestVisible="False"
-                                            Visibility="{x:Bind local:MainPage.TextVisible(ViewModel.EmptyMessage), Mode=OneWay}">
+                                            Visibility="{x:Bind local:ViewHelpers.TextVisible(ViewModel.EmptyMessage), Mode=OneWay}">
                                     <Viewbox Width="48" Height="48">
                                         <PathIcon x:Name="EmptyListIcon" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                     </Viewbox>
@@ -445,408 +387,12 @@
                                               Background="Transparent"
                                               AutomationProperties.AutomationId="DetailSplitter" AutomationProperties.Name="Resize item list and details" />
 
-                        <Border Grid.Row="2" Style="{StaticResource CardStyle}">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="*" />
-                                </Grid.RowDefinitions>
-                                <Border BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" Padding="8,0">
-                                    <CommandBar DefaultLabelPosition="Right" HorizontalAlignment="Left" OverflowButtonVisibility="Visible"
-                                                Background="Transparent" AutomationProperties.AutomationId="DetailsActions">
-                                        <AppBarButton Label="Mark read" Command="{x:Bind ViewModel.MarkPreviewReadCommand}"
-                                                      Visibility="{x:Bind local:MainPage.Visible(ViewModel.SelectedItem.CanMarkRead), Mode=OneWay, FallbackValue=Collapsed}"
-                                                      ToolTipService.ToolTip="Mark this item read. To act on every selected row, right-click the table or press Ctrl+Q."
-                                                      AutomationProperties.AutomationId="MarkRead" AutomationProperties.Name="Mark previewed item read">
-                                            <AppBarButton.Icon><SymbolIcon Symbol="Read" /></AppBarButton.Icon>
-                                        </AppBarButton>
-                                        <AppBarButton Label="Mark unread" Command="{x:Bind ViewModel.MarkPreviewUnreadCommand}"
-                                                      Visibility="{x:Bind local:MainPage.Visible(ViewModel.SelectedItem.CanMarkUnread), Mode=OneWay, FallbackValue=Collapsed}"
-                                                      ToolTipService.ToolTip="Mark this item unread. To act on every selected row, right-click the table or press Ctrl+U."
-                                                      AutomationProperties.AutomationId="MarkUnread" AutomationProperties.Name="Mark previewed item unread">
-                                            <AppBarButton.Icon><FontIcon Glyph="&#xE715;" /></AppBarButton.Icon>
-                                        </AppBarButton>
-                                        <AppBarButton Label="{x:Bind ViewModel.SelectedItem.ItemFlagLabel, Mode=OneWay, FallbackValue='Flag item'}"
-                                                      Command="{x:Bind ViewModel.ToggleItemFollowUpCommand}"
-                                                      AutomationProperties.AutomationId="FlagItem">
-                                            <AppBarButton.Icon><FontIcon Glyph="&#xE7C1;" /></AppBarButton.Icon>
-                                        </AppBarButton>
-                                        <AppBarSeparator />
-                                        <AppBarButton Label="Summarize unread" Command="{x:Bind ViewModel.SummarizeUnreadCommand}"
-                                                      ToolTipService.ToolTip="{x:Bind ViewModel.LocalAiDescription, Mode=OneWay}"
-                                                      AutomationProperties.HelpText="{x:Bind ViewModel.LocalAiDescription, Mode=OneWay}"
-                                                      AutomationProperties.AutomationId="SummarizeUnread" AutomationProperties.Name="Summarize unread comments in the previewed discussion">
-                                            <AppBarButton.Icon><PathIcon x:Name="SummarizeUnreadIcon" /></AppBarButton.Icon>
-                                        </AppBarButton>
-                                        <AppBarButton Label="Summarize" Command="{x:Bind ViewModel.SummarizeCommand}"
-                                                      ToolTipService.ToolTip="{x:Bind ViewModel.LocalAiDescription, Mode=OneWay}"
-                                                      AutomationProperties.HelpText="{x:Bind ViewModel.LocalAiDescription, Mode=OneWay}"
-                                                      AutomationProperties.AutomationId="Summarize" AutomationProperties.Name="Summarize the entire previewed discussion">
-                                            <AppBarButton.Icon><PathIcon x:Name="SummarizeIcon" /></AppBarButton.Icon>
-                                        </AppBarButton>
-                                        <AppBarButton Label="Open in GitHub" Command="{x:Bind ViewModel.OpenBrowserCommand}"
-                                                      ToolTipService.ToolTip="Open in GitHub (Ctrl+O)" AutomationProperties.AutomationId="OpenInGitHub">
-                                            <AppBarButton.Icon><FontIcon Glyph="&#xE8A7;" /></AppBarButton.Icon>
-                                            <AppBarButton.KeyboardAccelerators><KeyboardAccelerator Key="O" Modifiers="Control" /></AppBarButton.KeyboardAccelerators>
-                                        </AppBarButton>
-                                        <CommandBar.SecondaryCommands>
-                                            <AppBarButton Label="Clear all follow-ups for this item" Icon="Clear"
-                                                          Command="{x:Bind ViewModel.ClearFollowUpsCommand}"
-                                                          AutomationProperties.AutomationId="ClearFollowUps" />
-                                        </CommandBar.SecondaryCommands>
-                                    </CommandBar>
-                                </Border>
-
-                                <Grid x:Name="SummaryLayout" Grid.Row="1" SizeChanged="SummaryLayout_SizeChanged">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                        <Border x:Name="SummaryPaneBorder" Grid.Column="1" Width="360" Canvas.ZIndex="1"
-                                                BorderThickness="1,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                                                Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"
-                                                Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsSummaryOpen), Mode=OneWay}"
-                                                KeyDown="SummaryPane_KeyDown">
-                                            <Grid Padding="16" RowSpacing="12">
-                                                <Grid.RowDefinitions>
-                                                    <RowDefinition Height="Auto" />
-                                                    <RowDefinition Height="Auto" />
-                                                    <RowDefinition Height="*" />
-                                                </Grid.RowDefinitions>
-                                                <Grid ColumnSpacing="8">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="Auto" />
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <PathIcon x:Name="SummaryHeaderIcon" Foreground="{x:Bind local:MainPage.SummaryAccentBrush(ViewModel.SummaryFailed), Mode=OneWay}" VerticalAlignment="Center" />
-                                                    <TextBlock Grid.Column="1" Text="{x:Bind local:MainPage.SummaryTitle(ViewModel.SummaryFailed, ViewModel.SummaryHeading), Mode=OneWay}"
-                                                               Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" TextWrapping="Wrap"
-                                                               AutomationProperties.AutomationId="SummaryTitle" />
-                                                    <Button x:Name="CloseSummaryButton" Grid.Column="2" Command="{x:Bind ViewModel.CloseSummaryCommand}"
-                                                            Style="{StaticResource SubtleIconButtonStyle}" ToolTipService.ToolTip="Close summary and cancel generation"
-                                                            AutomationProperties.AutomationId="CloseSummary" AutomationProperties.Name="Close summary and cancel generation">
-                                                        <FontIcon Glyph="&#xE8BB;" FontSize="12" />
-                                                    </Button>
-                                                </Grid>
-                                                <ProgressBar Grid.Row="1" IsIndeterminate="True" Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsSummarizing), Mode=OneWay}"
-                                                             AutomationProperties.Name="Generating summary" />
-                                                <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled"
-                                                              AutomationProperties.AutomationId="SummaryPane" AutomationProperties.Name="Local AI summary">
-                                                    <StackPanel Spacing="12">
-                                                        <InfoBar IsOpen="{x:Bind ViewModel.SummaryNeedsModelDownload, Mode=TwoWay}"
-                                                                 IsClosable="True" Severity="Informational" Title="Download local AI model?"
-                                                                 Message="Windows needs to download an optional language model, which can use several GB. Download progress is available in Windows Update; the model can be removed in Settings > System > AI Components."
-                                                                 AutomationProperties.AutomationId="SummaryModelDownloadConfirmation">
-                                                            <InfoBar.ActionButton>
-                                                                <Button Content="Download model" Command="{x:Bind ViewModel.ConfirmSummaryModelDownloadCommand}"
-                                                                        AutomationProperties.AutomationId="ConfirmSummaryModelDownload" />
-                                                            </InfoBar.ActionButton>
-                                                        </InfoBar>
-                                                        <TextBlock Text="{x:Bind ViewModel.SummaryStatus, Mode=OneWay}" TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}"
-                                                                   Visibility="{x:Bind local:MainPage.TextVisible(ViewModel.SummaryStatus), Mode=OneWay}"
-                                                                   Foreground="{x:Bind local:MainPage.SummaryStatusBrush(ViewModel.SummaryFailed), Mode=OneWay}"
-                                                                   AutomationProperties.AutomationId="SummaryStatus" AutomationProperties.LiveSetting="Polite" />
-                                                        <local:MarkdownView Text="{x:Bind ViewModel.Summary, Mode=OneWay}" Style="{StaticResource DetailsMarkdownStyle}"
-                                                                   LinkClicked="Markdown_LinkClicked" ImageResolving="Markdown_ImageResolving"
-                                                                   AutomationProperties.AutomationId="SummaryMarkdown" AutomationProperties.Name="Local AI summary of the previewed discussion" />
-                                                    </StackPanel>
-                                                </ScrollViewer>
-                                            </Grid>
-                                        </Border>
-                                <ListView x:Name="DetailsScroll" SelectionMode="None" IsItemClickEnabled="False"
-                                          ItemsSource="{x:Bind ViewModel.PreviewActivities, Mode=OneWay}"
-                                          HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                          Loaded="DetailsScroll_Loaded" PreviewKeyDown="DetailsScroll_PreviewKeyDown"
-                                          IsTabStop="True" AutomationProperties.AutomationId="DetailsPane" AutomationProperties.Name="Selected item discussion">
-                                    <ListView.Resources>
-                                        <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
-                                        <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
-                                    </ListView.Resources>
-                                    <ListView.ItemContainerStyle>
-                                        <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
-                                            <Setter Property="Padding" Value="0" />
-                                            <Setter Property="Margin" Value="0" />
-                                            <Setter Property="MinHeight" Value="0" />
-                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                        </Style>
-                                    </ListView.ItemContainerStyle>
-                                    <ListView.Header>
-                                        <StackPanel x:Name="DiscussionHeader" Padding="24,18,24,10" Spacing="10"
-                                                    Visibility="{x:Bind local:MainPage.Visible(ViewModel.HasSelectedItem), Mode=OneWay}">
-                                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                                <local:ItemStateIcon ShowLabel="True" StateKey="{x:Bind ViewModel.SelectedItem.StateKey, Mode=OneWay, FallbackValue=''}" />
-                                                <TextBlock Text="{x:Bind ViewModel.SelectedItem.RepositoryNumber, Mode=OneWay, FallbackValue=''}" VerticalAlignment="Center"
-                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsTextSelectionEnabled="True" />
-                                                <Border Style="{StaticResource ChipStyle}">
-                                                    <TextBlock Text="{x:Bind ViewModel.SelectedItem.ReadLabel, Mode=OneWay, FallbackValue=''}" FontSize="12"
-                                                               AutomationProperties.AutomationId="SelectedItemReadStatus" />
-                                                </Border>
-                                                <FontIcon Glyph="&#xE7C1;" FontSize="14" Foreground="{ThemeResource FollowUpFlagBrush}" VerticalAlignment="Center"
-                                                          Visibility="{x:Bind local:MainPage.Visible(ViewModel.SelectedItem.HasFollowUps), Mode=OneWay, FallbackValue=Collapsed}"
-                                                          AutomationProperties.AccessibilityView="Raw" />
-                                            </StackPanel>
-                                            <TextBlock Text="{x:Bind ViewModel.SelectedItem.Title, Mode=OneWay, FallbackValue=''}" Style="{ThemeResource SubtitleTextBlockStyle}"
-                                                       TextWrapping="Wrap" IsTextSelectionEnabled="True" AutomationProperties.AutomationId="SelectedItemTitle" />
-                                            <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap">
-                                                <Run Text="{x:Bind ViewModel.SelectedItem.Metadata, Mode=OneWay, FallbackValue=''}" />
-                                                <Run Text="  ·  " />
-                                                <Run Text="{x:Bind ViewModel.SelectedItem.Freshness, Mode=OneWay, FallbackValue=''}" />
-                                            </TextBlock>
-                                            <StackPanel Orientation="Horizontal" Spacing="8"
-                                                        Visibility="{x:Bind local:MainPage.Visible(ViewModel.SelectedItem.HasFollowUps), Mode=OneWay, FallbackValue=Collapsed}">
-                                                <FontIcon Glyph="&#xE7C1;" FontSize="12" Foreground="{ThemeResource FollowUpFlagBrush}" AutomationProperties.AccessibilityView="Raw" />
-                                                <TextBlock Text="{x:Bind ViewModel.SelectedItem.FollowUpStatus, Mode=OneWay, FallbackValue=''}"
-                                                           Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap" AutomationProperties.AutomationId="FollowUpStatus" />
-                                            </StackPanel>
-
-                                            <Grid Margin="0,8,0,0" ColumnSpacing="12">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto" />
-                                                    <ColumnDefinition Width="*" />
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel>
-                                                    <TextBlock Text="{x:Bind ViewModel.SelectedItem.DiscussionSummary, Mode=OneWay, FallbackValue=''}" TextWrapping="Wrap"
-                                                               Style="{ThemeResource BodyStrongTextBlockStyle}"
-                                                               AutomationProperties.AutomationId="AllDiscussionStatus" />
-                                                    <TextBlock Text="Comments are marked read as you scroll past their ends. Opening alone doesn't mark anything read."
-                                                               Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap" />
-                                                </StackPanel>
-                                            </Grid>
-                                        </StackPanel>
-                                    </ListView.Header>
-                                    <ListView.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:ActivityRow">
-                                            <Grid Padding="24,6" AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}">
-                                                <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                                        BorderThickness="1" CornerRadius="8">
-                                                    <Grid>
-                                                        <Border Width="3" CornerRadius="1.5" Margin="0,14" HorizontalAlignment="Left"
-                                                                Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                                                Visibility="{x:Bind local:MainPage.Visible(IsUnread), Mode=OneWay}" />
-                                                        <Grid Padding="16,12,12,14" ColumnSpacing="12" RowSpacing="6">
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="Auto" />
-                                                                <ColumnDefinition Width="*" />
-                                                                <ColumnDefinition Width="Auto" />
-                                                            </Grid.ColumnDefinitions>
-                                                            <Grid.RowDefinitions>
-                                                                <RowDefinition Height="Auto" />
-                                                                <RowDefinition Height="Auto" />
-                                                            </Grid.RowDefinitions>
-                                                            <PersonPicture Grid.RowSpan="2" Width="32" Height="32" VerticalAlignment="Top"
-                                                                           DisplayName="{x:Bind Author, Mode=OneWay}"
-                                                                           ProfilePicture="{x:Bind local:MainPage.Avatar(Author), Mode=OneWay}"
-                                                                           AutomationProperties.AccessibilityView="Raw" />
-                                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                                                <TextBlock Text="{x:Bind Author, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                                                <TextBlock Text="{x:Bind Action, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
-                                                                <TextBlock Text="·" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
-                                                                <TextBlock Text="{x:Bind When, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"
-                                                                           ToolTipService.ToolTip="{x:Bind Timestamp, Mode=OneWay}" />
-                                                                <Border Style="{StaticResource AccentChipStyle}" Padding="8,1" Margin="4,0,0,0"
-                                                                        Visibility="{x:Bind local:MainPage.Visible(IsUnread), Mode=OneWay}">
-                                                                    <TextBlock Text="New" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-                                                                </Border>
-                                                            </StackPanel>
-                                                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Top">
-                                                                <Button Click="CommentReadState_Click" Style="{StaticResource SubtleIconButtonStyle}"
-                                                                        ToolTipService.ToolTip="{x:Bind ReadActionLabel, Mode=OneWay}"
-                                                                        AutomationProperties.Name="{x:Bind ReadActionLabel, Mode=OneWay}"
-                                                                        AutomationProperties.AutomationId="{x:Bind ReadActionAutomationId, Mode=OneWay}">
-                                                                    <SymbolIcon Symbol="{x:Bind local:MainPage.ReadActionIcon(IsUnread), Mode=OneWay}" />
-                                                                </Button>
-                                                                <ToggleButton IsChecked="{x:Bind IsFlagged, Mode=OneWay}" Click="CommentFollowUp_Click"
-                                                                              Style="{StaticResource SubtleToggleButtonStyle}" ToolTipService.ToolTip="Flag for follow-up"
-                                                                              AutomationProperties.Name="Flag this comment or review for follow-up"
-                                                                              AutomationProperties.AutomationId="{x:Bind FlagAutomationId, Mode=OneWay}">
-                                                                    <FontIcon Glyph="&#xE7C1;" FontSize="16" />
-                                                                </ToggleButton>
-                                                            </StackPanel>
-                                                            <local:MarkdownView Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2,4,0"
-                                                                       Text="{x:Bind Body, Mode=OneWay}" Style="{StaticResource DetailsMarkdownStyle}"
-                                                                       LinkClicked="Markdown_LinkClicked" ImageResolving="Markdown_ImageResolving"
-                                                                       AutomationProperties.AutomationId="{x:Bind AutomationId, Mode=OneWay}"
-                                                                       AutomationProperties.Name="Comment or review" />
-                                                        </Grid>
-                                                    </Grid>
-                                                </Border>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ListView.ItemTemplate>
-                                    <ListView.Footer>
-                                        <StackPanel Padding="24,10,24,24" Spacing="10" Visibility="{x:Bind local:MainPage.Visible(ViewModel.HasSelectedItem), Mode=OneWay}">
-                                            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                                      AutomationProperties.Name="Issue / PR description (context)"
-                                                      AutomationProperties.AutomationId="DescriptionContext">
-                                                <Expander.Header>
-                                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                                        <FontIcon Glyph="&#xE8A5;" FontSize="16" />
-                                                        <TextBlock Text="Original description" VerticalAlignment="Center" />
-                                                    </StackPanel>
-                                                </Expander.Header>
-                                                <local:MarkdownView Text="{x:Bind ViewModel.SelectedItem.Item.Body, Mode=OneWay, FallbackValue=''}"
-                                                           Style="{StaticResource DetailsMarkdownStyle}" LinkClicked="Markdown_LinkClicked"
-                                                           ImageResolving="Markdown_ImageResolving" AutomationProperties.AutomationId="DescriptionMarkdown"
-                                                           AutomationProperties.Name="Selected item description" />
-                                            </Expander>
-                                            <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap">
-                                                <Run Text="Preview links open only HTTPS github.com addresses. Remote images are disabled." />
-                                                <LineBreak />
-                                                <Run Text="{x:Bind ViewModel.LocalAiDescription, Mode=OneWay}" />
-                                            </TextBlock>
-                                            <TextBlock Text="{x:Bind ViewModel.LocalAiDescription, Mode=OneWay}" Visibility="Collapsed"
-                                                       AutomationProperties.AutomationId="LocalAiAvailability" />
-                                        </StackPanel>
-                                    </ListView.Footer>
-                                </ListView>
-                                </Grid>
-
-                                <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Margin="24" IsHitTestVisible="False"
-                                            Visibility="{x:Bind local:MainPage.CollapsedWhen(ViewModel.HasSelectedItem), Mode=OneWay}" d:Visibility="Collapsed">
-                                    <Viewbox Width="56" Height="56">
-                                        <PathIcon x:Name="EmptyDetailsIcon" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                                    </Viewbox>
-                                    <TextBlock Text="Select an item to catch up" Style="{ThemeResource BodyStrongTextBlockStyle}" HorizontalAlignment="Center" />
-                                    <TextBlock Text="Unread comments and reviews show up here, oldest first." HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{ThemeResource CaptionTextBlockStyle}" />
-                                </StackPanel>
-                            </Grid>
-                        </Border>
+                        <local:ItemDetailsView x:Name="ItemDetails" Grid.Row="2" ViewModel="{x:Bind ViewModel, Mode=OneWay}" />
                     </Grid>
                 </Grid>
 
-                <ScrollViewer Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsSettingsOpen), Mode=OneWay}" d:Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled">
-                    <StackPanel Margin="36,28,36,36" MaxWidth="1000" Spacing="4">
-                        <Grid Margin="0,0,0,8">
-                            <TextBlock Text="Settings" Style="{ThemeResource TitleTextBlockStyle}" VerticalAlignment="Center" />
-                            <Button HorizontalAlignment="Right" Click="BackToQueries_Click" Style="{StaticResource AccentButtonStyle}"
-                                    Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsSignedIn), Mode=OneWay}"
-                                    AutomationProperties.Name="Back to queries" AutomationProperties.AutomationId="BackToQueries">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <FontIcon Glyph="&#xE72B;" FontSize="14" />
-                                    <TextBlock Text="Back to queries" />
-                                </StackPanel>
-                            </Button>
-                        </Grid>
-
-                        <Border Style="{StaticResource CardStyle}" Padding="20">
-                            <Grid ColumnSpacing="20">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <PersonPicture Width="72" Height="72" DisplayName="{x:Bind ViewModel.AccountLogin, Mode=OneWay}"
-                                               ProfilePicture="{x:Bind local:MainPage.Avatar(ViewModel.AccountLogin), Mode=OneWay}"
-                                               AutomationProperties.AccessibilityView="Raw" />
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
-                                    <TextBlock Text="{x:Bind ViewModel.AccountLabel, Mode=OneWay}" Style="{ThemeResource SubtitleTextBlockStyle}" TextWrapping="Wrap" />
-                                    <TextBlock Text="GitHub.com issues and pull requests. Read state and follow-up flags stay on this device."
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <Button Content="Sign in" Command="{x:Bind ViewModel.SignInCommand}" Style="{StaticResource AccentButtonStyle}"
-                                            IsEnabled="{x:Bind local:MainPage.CanConfigure(ViewModel.IsSignedIn, ViewModel.IsDeviceFlow), Mode=OneWay}"
-                                            AutomationProperties.AutomationId="SignIn" />
-                                    <Button Content="Sign out" Command="{x:Bind ViewModel.SignOutCommand}" AutomationProperties.AutomationId="SignOut" />
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-
-                        <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,8,0,0"
-                                BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
-                                Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsDeviceFlow), Mode=OneWay}" d:Visibility="Collapsed">
-                            <StackPanel Spacing="12">
-                                <TextBlock Text="Finish signing in on GitHub" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                <TextBlock Text="{x:Bind ViewModel.DeviceMessage, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True"
-                                           Style="{ThemeResource SubtitleTextBlockStyle}" AutomationProperties.AutomationId="DeviceCode" />
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button Content="Open GitHub authorization" Style="{StaticResource AccentButtonStyle}"
-                                            Command="{x:Bind ViewModel.OpenVerificationCommand}" AutomationProperties.AutomationId="OpenDeviceAuthorization" />
-                                    <Button Content="Cancel sign-in" Command="{x:Bind ViewModel.CancelSignInCommand}" AutomationProperties.AutomationId="CancelSignIn" />
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-
-                        <TextBlock Text="Appearance" Style="{StaticResource SectionHeaderStyle}" />
-                        <toolkit:SettingsCard Header="App theme" Description="Choose light or dark, or follow your Windows setting.">
-                            <toolkit:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE771;" /></toolkit:SettingsCard.HeaderIcon>
-                            <ComboBox x:Name="ThemePicker" MinWidth="180" SelectionChanged="ThemePicker_SelectionChanged"
-                                      AutomationProperties.Name="App theme" AutomationProperties.AutomationId="AppTheme">
-                                <ComboBoxItem Content="Use system setting" Tag="Default" AutomationProperties.AutomationId="ThemeSystem" />
-                                <ComboBoxItem Content="Light" Tag="Light" AutomationProperties.AutomationId="ThemeLight" />
-                                <ComboBoxItem Content="Dark" Tag="Dark" AutomationProperties.AutomationId="ThemeDark" />
-                            </ComboBox>
-                        </toolkit:SettingsCard>
-
-                        <TextBlock Text="GitHub connection" Style="{StaticResource SectionHeaderStyle}" />
-                        <toolkit:SettingsExpander Header="{x:Bind local:MainPage.OAuthHeader(ViewModel.HasBuiltInClientId)}" IsExpanded="True"
-                                                  Description="{x:Bind local:MainPage.OAuthDescription(ViewModel.HasBuiltInClientId)}"
-                                                  AutomationProperties.AutomationId="OAuthSettings">
-                            <toolkit:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE8D7;" /></toolkit:SettingsExpander.HeaderIcon>
-                            <toolkit:SettingsExpander.Items>
-                                <toolkit:SettingsCard Header="Client ID" Description="Public identifier, not a secret."
-                                                      Visibility="{x:Bind local:MainPage.CollapsedWhen(ViewModel.HasBuiltInClientId)}">
-                                    <TextBox MinWidth="300" PlaceholderText="Ov23li…" Text="{x:Bind ViewModel.ClientId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                             IsEnabled="{x:Bind local:MainPage.CanConfigure(ViewModel.IsSignedIn, ViewModel.IsDeviceFlow), Mode=OneWay}"
-                                             AutomationProperties.Name="OAuth client ID (not a secret)" AutomationProperties.AutomationId="OAuthClientId" />
-                                </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="Private repositories"
-                                                      Description="Uses GitHub's broad repo scope even though this app never writes to repositories. Your organization may require SSO authorization or app approval.">
-                                    <ToggleSwitch IsOn="{x:Bind ViewModel.IncludePrivate, Mode=TwoWay}"
-                                                  IsEnabled="{x:Bind local:MainPage.CanConfigure(ViewModel.IsSignedIn, ViewModel.IsDeviceFlow), Mode=OneWay}"
-                                                  AutomationProperties.Name="Request private repository access (repo scope)" AutomationProperties.AutomationId="PrivateScope" />
-                                </toolkit:SettingsCard>
-                                <toolkit:SettingsCard Header="GitHub Projects"
-                                                      Description="Request read:project access to show Priority and Effort custom fields. Sign out and sign in again after changing access. Only projects your account can access are shown.">
-                                    <ToggleSwitch IsOn="{x:Bind ViewModel.IncludeProjects, Mode=TwoWay}"
-                                                  IsEnabled="{x:Bind local:MainPage.CanConfigure(ViewModel.IsSignedIn, ViewModel.IsDeviceFlow), Mode=OneWay}"
-                                                  AutomationProperties.Name="Request GitHub Projects read access" AutomationProperties.AutomationId="ProjectScope" />
-                                </toolkit:SettingsCard>
-                                <toolkit:SettingsCard ContentAlignment="Left">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <Button Content="Save configuration" Command="{x:Bind ViewModel.SaveSettingsCommand}" AutomationProperties.AutomationId="SaveConfiguration" />
-                                        <HyperlinkButton Content="Register a GitHub OAuth app" NavigateUri="https://github.com/settings/applications/new"
-                                                         Visibility="{x:Bind local:MainPage.CollapsedWhen(ViewModel.HasBuiltInClientId)}"
-                                                         AutomationProperties.AutomationId="OAuthRegistration" />
-                                    </StackPanel>
-                                </toolkit:SettingsCard>
-                            </toolkit:SettingsExpander.Items>
-                        </toolkit:SettingsExpander>
-
-                        <StackPanel Spacing="4" Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsSignedIn), Mode=OneWay}">
-                            <TextBlock Text="Noise filtering" Style="{StaticResource SectionHeaderStyle}" />
-                            <toolkit:SettingsExpander Header="Ignored accounts" IsExpanded="True"
-                                                      Description="Activity from these logins never makes an item unread. Changes apply instantly to cached items; removing an account can reveal unread activity again.">
-                                <toolkit:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE8F8;" /></toolkit:SettingsExpander.HeaderIcon>
-                                <toolkit:SettingsExpander.Items>
-                                    <toolkit:SettingsCard ContentAlignment="Vertical" HorizontalContentAlignment="Stretch">
-                                        <StackPanel Spacing="10" HorizontalAlignment="Stretch">
-                                            <TextBox AcceptsReturn="True" MinHeight="96" TextWrapping="Wrap" PlaceholderText="dependabot[bot]&#x0a;github-actions[bot]"
-                                                     Text="{x:Bind ViewModel.IgnoredLogins, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                     AutomationProperties.Name="GitHub logins, one per line (bot names supported)" AutomationProperties.AutomationId="IgnoredAccounts" />
-                                            <StackPanel Orientation="Horizontal" Spacing="12">
-                                                <Button Content="Save ignored accounts" Command="{x:Bind ViewModel.SaveIgnoredCommand}" AutomationProperties.AutomationId="SaveIgnoredAccounts" />
-                                                <TextBlock Text="{x:Bind ViewModel.IgnoredStatus, Mode=OneWay}" TextWrapping="Wrap" VerticalAlignment="Center"
-                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </toolkit:SettingsCard>
-                                </toolkit:SettingsExpander.Items>
-                            </toolkit:SettingsExpander>
-                        </StackPanel>
-
-                        <TextBlock Text="About" Style="{StaticResource SectionHeaderStyle}" />
-                        <toolkit:SettingsCard Header="How refreshing works"
-                                              Description="While this window is open, recently updated items are checked every two minutes with a full reconciliation every 30 minutes. GitHub search is eventually consistent and limited to 1,000 results per query. Badges count loaded items; pending and stale coverage are shown separately. Review requested means direct requests. Nothing runs after you close the app.">
-                            <toolkit:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE946;" /></toolkit:SettingsCard.HeaderIcon>
-                        </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="Icons" Description="Issue and pull request icons are GitHub Primer Octicons (MIT license).">
-                            <toolkit:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE790;" /></toolkit:SettingsCard.HeaderIcon>
-                        </toolkit:SettingsCard>
-                    </StackPanel>
-                </ScrollViewer>
+                <local:SettingsView ViewModel="{x:Bind ViewModel, Mode=OneWay}" BackRequested="BackToQueries_Click"
+                                    Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.IsSettingsOpen), Mode=OneWay}" d:Visibility="Collapsed" />
             </Grid>
         </NavigationView>
 
@@ -862,7 +408,7 @@
                 </Grid.ColumnDefinitions>
                 <ProgressRing Width="14" Height="14" MinWidth="0" MinHeight="0" Margin="0,0,8,0" VerticalAlignment="Center"
                               IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}"
-                              Visibility="{x:Bind local:MainPage.Visible(ViewModel.IsBusy), Mode=OneWay}"
+                              Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.IsBusy), Mode=OneWay}"
                               AutomationProperties.AutomationId="RefreshProgress" AutomationProperties.Name="Refreshing" />
                 <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.Status, Mode=OneWay}" TextTrimming="CharacterEllipsis" Style="{ThemeResource CaptionTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" ToolTipService.ToolTip="{x:Bind ViewModel.Status, Mode=OneWay}"

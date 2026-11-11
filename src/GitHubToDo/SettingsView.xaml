@@ -1,0 +1,180 @@
+<UserControl
+    x:Class="GitHubToDo.SettingsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:GitHubToDo"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d" d:Width="700">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <Style x:Key="SectionHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+                <Setter Property="Margin" Value="1,28,0,6" />
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="36,28,36,36" MaxWidth="1000" Spacing="4">
+            <Grid Margin="0,0,0,8">
+                <TextBlock Text="Settings" Style="{ThemeResource TitleTextBlockStyle}" VerticalAlignment="Center" />
+                <Button HorizontalAlignment="Right" Click="BackToQueries_Click" Style="{StaticResource AccentButtonStyle}"
+                        Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.IsSignedIn), Mode=OneWay}"
+                        AutomationProperties.Name="Back to queries" AutomationProperties.AutomationId="BackToQueries">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                        <TextBlock Text="Back to queries" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <Border Style="{StaticResource CardStyle}" Padding="20">
+                <Grid ColumnSpacing="20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <PersonPicture Width="72" Height="72" DisplayName="{x:Bind ViewModel.AccountLogin, Mode=OneWay}"
+                                   ProfilePicture="{x:Bind local:ViewHelpers.Avatar(ViewModel.AccountLogin), Mode=OneWay}"
+                                   AutomationProperties.AccessibilityView="Raw" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+                        <TextBlock Text="{x:Bind ViewModel.AccountLabel, Mode=OneWay}" Style="{ThemeResource SubtitleTextBlockStyle}" TextWrapping="Wrap" />
+                        <TextBlock Text="GitHub.com issues and pull requests. Read state and follow-up flags stay on this device."
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Content="Sign in" Command="{x:Bind ViewModel.SignInCommand}" Style="{StaticResource AccentButtonStyle}"
+                                IsEnabled="{x:Bind local:ViewHelpers.CanConfigure(ViewModel.IsSignedIn, ViewModel.IsDeviceFlow), Mode=OneWay}"
+                                AutomationProperties.AutomationId="SignIn" />
+                        <Button Content="Sign out" Command="{x:Bind ViewModel.SignOutCommand}" AutomationProperties.AutomationId="SignOut" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,8,0,0"
+                    BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                    Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.IsDeviceFlow), Mode=OneWay}" d:Visibility="Collapsed">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Finish signing in on GitHub" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                    <TextBlock Text="{x:Bind ViewModel.DeviceMessage, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                               Style="{ThemeResource SubtitleTextBlockStyle}" AutomationProperties.AutomationId="DeviceCode" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Open GitHub authorization" Style="{StaticResource AccentButtonStyle}"
+                                Command="{x:Bind ViewModel.OpenVerificationCommand}" AutomationProperties.AutomationId="OpenDeviceAuthorization" />
+                        <Button Content="Cancel sign-in" Command="{x:Bind ViewModel.CancelSignInCommand}" AutomationProperties.AutomationId="CancelSignIn" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <TextBlock Text="Appearance" Style="{StaticResource SectionHeaderStyle}" />
+            <toolkit:SettingsCard Header="App theme" Description="Choose light or dark, or follow your Windows setting.">
+                <toolkit:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE771;" /></toolkit:SettingsCard.HeaderIcon>
+                <ComboBox x:Name="ThemePicker" MinWidth="180" SelectionChanged="ThemePicker_SelectionChanged"
+                          AutomationProperties.Name="App theme" AutomationProperties.AutomationId="AppTheme">
+                    <ComboBoxItem Content="Use system setting" Tag="Default" AutomationProperties.AutomationId="ThemeSystem" />
+                    <ComboBoxItem Content="Light" Tag="Light" AutomationProperties.AutomationId="ThemeLight" />
+                    <ComboBoxItem Content="Dark" Tag="Dark" AutomationProperties.AutomationId="ThemeDark" />
+                </ComboBox>
+            </toolkit:SettingsCard>
+
+            <TextBlock Text="Artificial intelligence" Style="{StaticResource SectionHeaderStyle}" />
+            <toolkit:SettingsCard Header="AI provider"
+                                  Description="Choose the provider for summaries and describe-to-query. Local AI is the default when supported; otherwise AI starts disabled. Your choice is saved automatically."
+                                  ContentAlignment="Vertical" HorizontalContentAlignment="Stretch">
+                <StackPanel Spacing="12">
+                    <RadioButtons Header="Provider" SelectedIndex="{x:Bind ViewModel.AiProviderIndex, Mode=OneWay}"
+                                  IsEnabled="{x:Bind ViewModel.CanChooseAiProvider, Mode=OneWay}" MaxColumns="1"
+                                  SelectionChanged="AiProvider_SelectionChanged" AutomationProperties.AutomationId="AiProvider">
+                        <RadioButton Content="Disabled" AutomationProperties.AutomationId="AiDisabled" />
+                        <RadioButton Content="Local AI" IsEnabled="{x:Bind ViewModel.IsLocalAiAvailable, Mode=OneWay}"
+                                     AutomationProperties.AutomationId="AiLocal" />
+                        <RadioButton Content="Copilot AI" IsEnabled="{x:Bind ViewModel.IsCopilotAiAvailable, Mode=OneWay}"
+                                     AutomationProperties.AutomationId="AiCopilot" />
+                    </RadioButtons>
+                    <TextBlock Text="{x:Bind ViewModel.AiDescription, Mode=OneWay}" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="AiProviderStatus" AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock Text="{x:Bind ViewModel.LocalAiAvailability, Mode=OneWay}" TextWrapping="Wrap"
+                               Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               AutomationProperties.AutomationId="LocalAiAvailability" />
+                    <TextBlock Text="{x:Bind ViewModel.CopilotAiAvailability, Mode=OneWay}" TextWrapping="Wrap"
+                               Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               AutomationProperties.AutomationId="CopilotAiAvailability" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button Content="Check availability" Command="{x:Bind ViewModel.RefreshAiAvailabilityCommand}"
+                                AutomationProperties.AutomationId="CheckAiAvailability" />
+                        <ProgressRing IsActive="{x:Bind ViewModel.IsCheckingAiAvailability, Mode=OneWay}" Width="20" Height="20"
+                                      AutomationProperties.Name="Checking AI availability" />
+                    </StackPanel>
+                </StackPanel>
+            </toolkit:SettingsCard>
+
+            <TextBlock Text="GitHub connection" Style="{StaticResource SectionHeaderStyle}" />
+            <toolkit:SettingsExpander Header="{x:Bind local:ViewHelpers.OAuthHeader(ViewModel.HasBuiltInClientId)}" IsExpanded="True"
+                                      Description="{x:Bind local:ViewHelpers.OAuthDescription(ViewModel.HasBuiltInClientId)}"
+                                      AutomationProperties.AutomationId="OAuthSettings">
+                <toolkit:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE8D7;" /></toolkit:SettingsExpander.HeaderIcon>
+                <toolkit:SettingsExpander.Items>
+                    <toolkit:SettingsCard Header="Client ID" Description="Public identifier, not a secret."
+                                          Visibility="{x:Bind local:ViewHelpers.CollapsedWhen(ViewModel.HasBuiltInClientId)}">
+                        <TextBox MinWidth="300" PlaceholderText="Ov23li…" Text="{x:Bind ViewModel.ClientId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 IsEnabled="{x:Bind local:ViewHelpers.CanConfigure(ViewModel.IsSignedIn, ViewModel.IsDeviceFlow), Mode=OneWay}"
+                                 AutomationProperties.Name="OAuth client ID (not a secret)" AutomationProperties.AutomationId="OAuthClientId" />
+                    </toolkit:SettingsCard>
+                    <toolkit:SettingsCard Header="Private repositories"
+                                          Description="Uses GitHub's broad repo scope even though this app never writes to repositories. Your organization may require SSO authorization or app approval.">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.IncludePrivate, Mode=TwoWay}"
+                                      IsEnabled="{x:Bind local:ViewHelpers.CanConfigure(ViewModel.IsSignedIn, ViewModel.IsDeviceFlow), Mode=OneWay}"
+                                      AutomationProperties.Name="Request private repository access (repo scope)" AutomationProperties.AutomationId="PrivateScope" />
+                    </toolkit:SettingsCard>
+                    <toolkit:SettingsCard Header="GitHub Projects"
+                                          Description="Request read:project access to show Priority and Effort custom fields. Sign out and sign in again after changing access. Only projects your account can access are shown.">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.IncludeProjects, Mode=TwoWay}"
+                                      IsEnabled="{x:Bind local:ViewHelpers.CanConfigure(ViewModel.IsSignedIn, ViewModel.IsDeviceFlow), Mode=OneWay}"
+                                      AutomationProperties.Name="Request GitHub Projects read access" AutomationProperties.AutomationId="ProjectScope" />
+                    </toolkit:SettingsCard>
+                    <toolkit:SettingsCard ContentAlignment="Left">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Save configuration" Command="{x:Bind ViewModel.SaveSettingsCommand}" AutomationProperties.AutomationId="SaveConfiguration" />
+                            <HyperlinkButton Content="Register a GitHub OAuth app" NavigateUri="https://github.com/settings/applications/new"
+                                             Visibility="{x:Bind local:ViewHelpers.CollapsedWhen(ViewModel.HasBuiltInClientId)}"
+                                             AutomationProperties.AutomationId="OAuthRegistration" />
+                        </StackPanel>
+                    </toolkit:SettingsCard>
+                </toolkit:SettingsExpander.Items>
+            </toolkit:SettingsExpander>
+
+            <StackPanel Spacing="4" Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.IsSignedIn), Mode=OneWay}">
+                <TextBlock Text="Noise filtering" Style="{StaticResource SectionHeaderStyle}" />
+                <toolkit:SettingsExpander Header="Ignored accounts" IsExpanded="True"
+                                          Description="Activity from these logins never makes an item unread. Changes apply instantly to cached items; removing an account can reveal unread activity again.">
+                    <toolkit:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE8F8;" /></toolkit:SettingsExpander.HeaderIcon>
+                    <toolkit:SettingsExpander.Items>
+                        <toolkit:SettingsCard ContentAlignment="Vertical" HorizontalContentAlignment="Stretch">
+                            <StackPanel Spacing="10" HorizontalAlignment="Stretch">
+                                <TextBox AcceptsReturn="True" MinHeight="96" TextWrapping="Wrap" PlaceholderText="dependabot[bot]&#x0a;github-actions[bot]"
+                                         Text="{x:Bind ViewModel.IgnoredLogins, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         AutomationProperties.Name="GitHub logins, one per line (bot names supported)" AutomationProperties.AutomationId="IgnoredAccounts" />
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <Button Content="Save ignored accounts" Command="{x:Bind ViewModel.SaveIgnoredCommand}" AutomationProperties.AutomationId="SaveIgnoredAccounts" />
+                                    <TextBlock Text="{x:Bind ViewModel.IgnoredStatus, Mode=OneWay}" TextWrapping="Wrap" VerticalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </toolkit:SettingsCard>
+                    </toolkit:SettingsExpander.Items>
+                </toolkit:SettingsExpander>
+            </StackPanel>
+
+            <TextBlock Text="About" Style="{StaticResource SectionHeaderStyle}" />
+            <toolkit:SettingsCard Header="How refreshing works"
+                                  Description="While this window is open, recently updated items are checked every two minutes with a full reconciliation every 30 minutes. GitHub search is eventually consistent and limited to 1,000 results per query. Badges count loaded items; pending and stale coverage are shown separately. Review requested means direct requests. Nothing runs after you close the app.">
+                <toolkit:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE946;" /></toolkit:SettingsCard.HeaderIcon>
+            </toolkit:SettingsCard>
+            <toolkit:SettingsCard Header="Icons" Description="Issue and pull request icons are GitHub Primer Octicons (MIT license).">
+                <toolkit:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE790;" /></toolkit:SettingsCard.HeaderIcon>
+            </toolkit:SettingsCard>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

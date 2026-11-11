@@ -1,0 +1,283 @@
+<UserControl
+    x:Class="GitHubToDo.ItemDetailsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:GitHubToDo"
+    xmlns:vm="using:GitHubToDo.ViewModels"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    d:Width="900" d:Height="800">
+    <Border Style="{StaticResource CardStyle}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Border BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" Padding="8,0">
+                <CommandBar DefaultLabelPosition="Right" HorizontalAlignment="Left" OverflowButtonVisibility="Visible"
+                            Background="Transparent" AutomationProperties.AutomationId="DetailsActions">
+                    <AppBarButton Label="Mark read" Command="{x:Bind ViewModel.MarkPreviewReadCommand}"
+                                  Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.SelectedItem.CanMarkRead), Mode=OneWay, FallbackValue=Collapsed}"
+                                  ToolTipService.ToolTip="Mark this item read. To act on every selected row, right-click the table or press Ctrl+Q."
+                                  AutomationProperties.AutomationId="MarkRead" AutomationProperties.Name="Mark previewed item read">
+                        <AppBarButton.Icon><SymbolIcon Symbol="Read" /></AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarButton Label="Mark unread" Command="{x:Bind ViewModel.MarkPreviewUnreadCommand}"
+                                  Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.SelectedItem.CanMarkUnread), Mode=OneWay, FallbackValue=Collapsed}"
+                                  ToolTipService.ToolTip="Mark this item unread. To act on every selected row, right-click the table or press Ctrl+U."
+                                  AutomationProperties.AutomationId="MarkUnread" AutomationProperties.Name="Mark previewed item unread">
+                        <AppBarButton.Icon><FontIcon Glyph="&#xE715;" /></AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarButton Label="{x:Bind ViewModel.SelectedItem.ItemFlagLabel, Mode=OneWay, FallbackValue='Flag item'}"
+                                  Command="{x:Bind ViewModel.ToggleItemFollowUpCommand}"
+                                  AutomationProperties.AutomationId="FlagItem">
+                        <AppBarButton.Icon><FontIcon Glyph="&#xE7C1;" /></AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarSeparator Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.IsAiEnabled), Mode=OneWay}" />
+                    <AppBarButton x:Name="SummarizeUnreadButton" Label="Summarize unread" Command="{x:Bind ViewModel.SummarizeUnreadCommand}"
+                                  IsEnabled="{x:Bind ViewModel.CanSummarizeUnread, Mode=OneWay, FallbackValue=False}"
+                                  x:Load="{x:Bind ViewModel.IsAiEnabled, Mode=OneWay}" Loaded="SummaryButton_Loaded"
+                                  ToolTipService.ToolTip="{x:Bind ViewModel.AiDescription, Mode=OneWay}"
+                                  AutomationProperties.HelpText="{x:Bind ViewModel.AiDescription, Mode=OneWay}"
+                                  AutomationProperties.AutomationId="SummarizeUnread" AutomationProperties.Name="Summarize unread comments in the previewed discussion">
+                        <AppBarButton.Icon><PathIcon /></AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarButton x:Name="SummarizeButton" Label="Summarize" Command="{x:Bind ViewModel.SummarizeCommand}"
+                                  IsEnabled="{x:Bind ViewModel.CanSummarize, Mode=OneWay, FallbackValue=False}"
+                                  x:Load="{x:Bind ViewModel.IsAiEnabled, Mode=OneWay}" Loaded="SummaryButton_Loaded"
+                                  ToolTipService.ToolTip="{x:Bind ViewModel.AiDescription, Mode=OneWay}"
+                                  AutomationProperties.HelpText="{x:Bind ViewModel.AiDescription, Mode=OneWay}"
+                                  AutomationProperties.AutomationId="Summarize" AutomationProperties.Name="Summarize the entire previewed discussion">
+                        <AppBarButton.Icon><PathIcon /></AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarButton Label="Open in GitHub" Command="{x:Bind ViewModel.OpenBrowserCommand}"
+                                  ToolTipService.ToolTip="Open in GitHub (Ctrl+O)" AutomationProperties.AutomationId="OpenInGitHub">
+                        <AppBarButton.Icon><FontIcon Glyph="&#xE8A7;" /></AppBarButton.Icon>
+                        <AppBarButton.KeyboardAccelerators><KeyboardAccelerator Key="O" Modifiers="Control" /></AppBarButton.KeyboardAccelerators>
+                    </AppBarButton>
+                    <CommandBar.SecondaryCommands>
+                        <AppBarButton Label="Clear all follow-ups for this item" Icon="Clear"
+                                      Command="{x:Bind ViewModel.ClearFollowUpsCommand}"
+                                      AutomationProperties.AutomationId="ClearFollowUps" />
+                    </CommandBar.SecondaryCommands>
+                </CommandBar>
+            </Border>
+
+            <Grid x:Name="SummaryLayout" Grid.Row="1" SizeChanged="SummaryLayout_SizeChanged">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                    <Border x:Name="SummaryPaneBorder" Grid.Column="1" Width="360" Canvas.ZIndex="1"
+                            BorderThickness="1,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                            Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"
+                            Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.IsSummaryOpen), Mode=OneWay}"
+                            KeyDown="SummaryPane_KeyDown">
+                        <Grid Padding="16" RowSpacing="12">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <PathIcon x:Name="SummaryHeaderIcon" Foreground="{x:Bind local:ViewHelpers.SummaryAccentBrush(ViewModel.SummaryFailed), Mode=OneWay}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="{x:Bind local:ViewHelpers.SummaryTitle(ViewModel.SummaryFailed, ViewModel.SummaryHeading), Mode=OneWay}"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" TextWrapping="Wrap"
+                                           AutomationProperties.AutomationId="SummaryTitle" />
+                                <Button x:Name="CloseSummaryButton" Grid.Column="2" Command="{x:Bind ViewModel.CloseSummaryCommand}"
+                                        Style="{StaticResource SubtleIconButtonStyle}" ToolTipService.ToolTip="Close summary and cancel generation"
+                                        AutomationProperties.AutomationId="CloseSummary" AutomationProperties.Name="Close summary and cancel generation">
+                                    <FontIcon Glyph="&#xE8BB;" FontSize="12" />
+                                </Button>
+                            </Grid>
+                            <ProgressBar Grid.Row="1" IsIndeterminate="True" Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.IsSummarizing), Mode=OneWay}"
+                                         AutomationProperties.Name="Generating summary" />
+                            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled"
+                                          AutomationProperties.AutomationId="SummaryPane" AutomationProperties.Name="AI summary">
+                                <StackPanel Spacing="12">
+                                    <InfoBar IsOpen="{x:Bind ViewModel.SummaryNeedsModelDownload, Mode=TwoWay}"
+                                             IsClosable="True" Severity="Informational" Title="Download local AI model?"
+                                             Message="Windows needs to download an optional language model, which can use several GB. Download progress is available in Windows Update; the model can be removed in Settings > System > AI Components."
+                                             AutomationProperties.AutomationId="SummaryModelDownloadConfirmation">
+                                        <InfoBar.ActionButton>
+                                            <Button Content="Download model" Command="{x:Bind ViewModel.ConfirmSummaryModelDownloadCommand}"
+                                                    AutomationProperties.AutomationId="ConfirmSummaryModelDownload" />
+                                        </InfoBar.ActionButton>
+                                    </InfoBar>
+                                    <TextBlock Text="{x:Bind ViewModel.SummaryStatus, Mode=OneWay}" TextWrapping="Wrap" Style="{ThemeResource CaptionTextBlockStyle}"
+                                               Visibility="{x:Bind local:ViewHelpers.TextVisible(ViewModel.SummaryStatus), Mode=OneWay}"
+                                               Foreground="{x:Bind local:ViewHelpers.SummaryStatusBrush(ViewModel.SummaryFailed), Mode=OneWay}"
+                                               AutomationProperties.AutomationId="SummaryStatus" AutomationProperties.LiveSetting="Polite" />
+                                    <local:MarkdownView Text="{x:Bind ViewModel.Summary, Mode=OneWay}" Style="{StaticResource DetailsMarkdownStyle}"
+                                               LinkClicked="Markdown_LinkClicked" ImageResolving="Markdown_ImageResolving"
+                                               AutomationProperties.AutomationId="SummaryMarkdown" AutomationProperties.Name="AI summary of the previewed discussion" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+            <ListView x:Name="DetailsScroll" SelectionMode="None" IsItemClickEnabled="False"
+                      ItemsSource="{x:Bind ViewModel.PreviewActivities, Mode=OneWay}"
+                      HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                      Loaded="DetailsScroll_Loaded" PreviewKeyDown="DetailsScroll_PreviewKeyDown"
+                      IsTabStop="True" AutomationProperties.AutomationId="DetailsPane" AutomationProperties.Name="Selected item discussion">
+                <ListView.Resources>
+                    <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="Transparent" />
+                </ListView.Resources>
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0" />
+                        <Setter Property="MinHeight" Value="0" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.Header>
+                    <StackPanel x:Name="DiscussionHeader" Padding="24,18,24,10" Spacing="10"
+                                Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.HasSelectedItem), Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <local:ItemStateIcon ShowLabel="True" StateKey="{x:Bind ViewModel.SelectedItem.StateKey, Mode=OneWay, FallbackValue=''}" />
+                            <TextBlock Text="{x:Bind ViewModel.SelectedItem.RepositoryNumber, Mode=OneWay, FallbackValue=''}" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsTextSelectionEnabled="True" />
+                            <Border Style="{StaticResource ChipStyle}">
+                                <TextBlock Text="{x:Bind ViewModel.SelectedItem.ReadLabel, Mode=OneWay, FallbackValue=''}" FontSize="12"
+                                           AutomationProperties.AutomationId="SelectedItemReadStatus" />
+                            </Border>
+                            <FontIcon Glyph="&#xE7C1;" FontSize="14" Foreground="{ThemeResource FollowUpFlagBrush}" VerticalAlignment="Center"
+                                      Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.SelectedItem.HasFollowUps), Mode=OneWay, FallbackValue=Collapsed}"
+                                      AutomationProperties.AccessibilityView="Raw" />
+                        </StackPanel>
+                        <TextBlock Text="{x:Bind ViewModel.SelectedItem.Title, Mode=OneWay, FallbackValue=''}" Style="{ThemeResource SubtitleTextBlockStyle}"
+                                   TextWrapping="Wrap" IsTextSelectionEnabled="True" AutomationProperties.AutomationId="SelectedItemTitle" />
+                        <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap">
+                            <Run Text="{x:Bind ViewModel.SelectedItem.Metadata, Mode=OneWay, FallbackValue=''}" />
+                            <Run Text="  ·  " />
+                            <Run Text="{x:Bind ViewModel.SelectedItem.Freshness, Mode=OneWay, FallbackValue=''}" />
+                        </TextBlock>
+                        <StackPanel Orientation="Horizontal" Spacing="8"
+                                    Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.SelectedItem.HasFollowUps), Mode=OneWay, FallbackValue=Collapsed}">
+                            <FontIcon Glyph="&#xE7C1;" FontSize="12" Foreground="{ThemeResource FollowUpFlagBrush}" AutomationProperties.AccessibilityView="Raw" />
+                            <TextBlock Text="{x:Bind ViewModel.SelectedItem.FollowUpStatus, Mode=OneWay, FallbackValue=''}"
+                                       Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap" AutomationProperties.AutomationId="FollowUpStatus" />
+                        </StackPanel>
+
+                        <Grid Margin="0,8,0,0" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{x:Bind ViewModel.SelectedItem.DiscussionSummary, Mode=OneWay, FallbackValue=''}" TextWrapping="Wrap"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           AutomationProperties.AutomationId="AllDiscussionStatus" />
+                                <TextBlock Text="Comments are marked read as you scroll past their ends. Opening alone doesn't mark anything read."
+                                           Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </ListView.Header>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ActivityRow">
+                        <Grid Padding="24,6" AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}">
+                            <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1" CornerRadius="8">
+                                <Grid>
+                                    <Border Width="3" CornerRadius="1.5" Margin="0,14" HorizontalAlignment="Left"
+                                            Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                            Visibility="{x:Bind local:ViewHelpers.Visible(IsUnread), Mode=OneWay}" />
+                                    <Grid Padding="16,12,12,14" ColumnSpacing="12" RowSpacing="6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <PersonPicture Grid.RowSpan="2" Width="32" Height="32" VerticalAlignment="Top"
+                                                       DisplayName="{x:Bind Author, Mode=OneWay}"
+                                                       ProfilePicture="{x:Bind local:ViewHelpers.Avatar(Author), Mode=OneWay}"
+                                                       AutomationProperties.AccessibilityView="Raw" />
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind Author, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                            <TextBlock Text="{x:Bind Action, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="·" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="{x:Bind When, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"
+                                                       ToolTipService.ToolTip="{x:Bind Timestamp, Mode=OneWay}" />
+                                            <Border Style="{StaticResource AccentChipStyle}" Padding="8,1" Margin="4,0,0,0"
+                                                    Visibility="{x:Bind local:ViewHelpers.Visible(IsUnread), Mode=OneWay}">
+                                                <TextBlock Text="New" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                            </Border>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Top">
+                                            <Button Click="CommentReadState_Click" Style="{StaticResource SubtleIconButtonStyle}"
+                                                    ToolTipService.ToolTip="{x:Bind ReadActionLabel, Mode=OneWay}"
+                                                    AutomationProperties.Name="{x:Bind ReadActionLabel, Mode=OneWay}"
+                                                    AutomationProperties.AutomationId="{x:Bind ReadActionAutomationId, Mode=OneWay}">
+                                                <SymbolIcon Symbol="{x:Bind local:ViewHelpers.ReadActionIcon(IsUnread), Mode=OneWay}" />
+                                            </Button>
+                                            <ToggleButton IsChecked="{x:Bind IsFlagged, Mode=OneWay}" Click="CommentFollowUp_Click"
+                                                          Style="{StaticResource SubtleToggleButtonStyle}" ToolTipService.ToolTip="Flag for follow-up"
+                                                          AutomationProperties.Name="Flag this comment or review for follow-up"
+                                                          AutomationProperties.AutomationId="{x:Bind FlagAutomationId, Mode=OneWay}">
+                                                <FontIcon Glyph="&#xE7C1;" FontSize="16" />
+                                            </ToggleButton>
+                                        </StackPanel>
+                                        <local:MarkdownView Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2,4,0"
+                                                   Text="{x:Bind Body, Mode=OneWay}" Style="{StaticResource DetailsMarkdownStyle}"
+                                                   LinkClicked="Markdown_LinkClicked" ImageResolving="Markdown_ImageResolving"
+                                                   AutomationProperties.AutomationId="{x:Bind AutomationId, Mode=OneWay}"
+                                                   AutomationProperties.Name="Comment or review" />
+                                    </Grid>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+                <ListView.Footer>
+                    <StackPanel Padding="24,10,24,24" Spacing="10" Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.HasSelectedItem), Mode=OneWay}">
+                        <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                  AutomationProperties.Name="Issue / PR description (context)"
+                                  AutomationProperties.AutomationId="DescriptionContext">
+                            <Expander.Header>
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <FontIcon Glyph="&#xE8A5;" FontSize="16" />
+                                    <TextBlock Text="Original description" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Expander.Header>
+                            <local:MarkdownView Text="{x:Bind ViewModel.SelectedItem.Item.Body, Mode=OneWay, FallbackValue=''}"
+                                       Style="{StaticResource DetailsMarkdownStyle}" LinkClicked="Markdown_LinkClicked"
+                                       ImageResolving="Markdown_ImageResolving" AutomationProperties.AutomationId="DescriptionMarkdown"
+                                       AutomationProperties.Name="Selected item description" />
+                        </Expander>
+                        <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap">
+                            <Run Text="Preview links open only HTTPS github.com addresses. Remote images are disabled." />
+                        </TextBlock>
+                        <TextBlock Text="{x:Bind ViewModel.AiDescription, Mode=OneWay}"
+                                   Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"
+                                   Visibility="{x:Bind local:ViewHelpers.Visible(ViewModel.IsAiEnabled), Mode=OneWay}"
+                                   AutomationProperties.AutomationId="AiProviderDescription" />
+                    </StackPanel>
+                </ListView.Footer>
+            </ListView>
+            </Grid>
+
+            <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Margin="24" IsHitTestVisible="False"
+                        Visibility="{x:Bind local:ViewHelpers.CollapsedWhen(ViewModel.HasSelectedItem), Mode=OneWay}" d:Visibility="Collapsed">
+                <Viewbox Width="56" Height="56">
+                    <PathIcon x:Name="EmptyDetailsIcon" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                </Viewbox>
+                <TextBlock Text="Select an item to catch up" Style="{ThemeResource BodyStrongTextBlockStyle}" HorizontalAlignment="Center" />
+                <TextBlock Text="Unread comments and reviews show up here, oldest first." HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{ThemeResource CaptionTextBlockStyle}" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

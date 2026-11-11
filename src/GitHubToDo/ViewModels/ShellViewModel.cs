@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GitHubToDo.Core;
@@ -106,6 +108,8 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     partial void OnIncludeProjectsChanged(bool value) => _workspace.IncludeProjectFields = _projectColumnsVisible && value;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(MarkReadCommand), nameof(MarkUnreadCommand), nameof(MarkPreviewReadCommand), nameof(MarkPreviewUnreadCommand), nameof(FlagSelectionCommand), nameof(OpenBrowserCommand), nameof(ToggleItemFollowUpCommand), nameof(ClearFollowUpsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SummarizeCommand), nameof(SummarizeUnreadCommand), nameof(ConfirmSummaryModelDownloadCommand))]
+    [NotifyPropertyChangedFor(nameof(CanSummarize), nameof(CanSummarizeUnread))]
     public partial bool IsSignedIn { get; set; }
     [ObservableProperty] public partial bool IsSettingsOpen { get; set; }
     [ObservableProperty] public partial bool IsBusy { get; set; }
@@ -125,15 +129,13 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     public partial QueryRow? SelectedQuery { get; set; }
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(MarkReadCommand), nameof(MarkUnreadCommand), nameof(MarkPreviewReadCommand), nameof(MarkPreviewUnreadCommand), nameof(FlagSelectionCommand), nameof(OpenBrowserCommand), nameof(ToggleItemFollowUpCommand), nameof(ClearFollowUpsCommand))]
-    [NotifyPropertyChangedFor(nameof(HasSelectedItem))]
+    [NotifyCanExecuteChangedFor(nameof(SummarizeCommand), nameof(SummarizeUnreadCommand), nameof(ConfirmSummaryModelDownloadCommand))]
+    [NotifyPropertyChangedFor(nameof(HasSelectedItem), nameof(CanSummarize), nameof(CanSummarizeUnread))]
     public partial ItemRow? SelectedItem { get; set; }
     [ObservableProperty] public partial string EmptyMessage { get; set; } = "Loading saved queries...";
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SummarizeCommand), nameof(SummarizeUnreadCommand), nameof(ConfirmSummaryModelDownloadCommand))]
-    public partial bool IsLocalAiAvailable { get; set; }
-    [ObservableProperty] public partial string LocalAiDescription { get; set; } = "Checking the installed local Windows AI model.";
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(SummarizeCommand), nameof(SummarizeUnreadCommand), nameof(ConfirmSummaryModelDownloadCommand))]
+    [NotifyPropertyChangedFor(nameof(CanSummarize), nameof(CanSummarizeUnread))]
     public partial bool IsSummarizing { get; set; }
     [ObservableProperty] public partial bool IsSummaryOpen { get; set; }
     [ObservableProperty] public partial string SummaryHeading { get; set; } = "Discussion summary";
@@ -227,7 +229,8 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         _isInitialized = true;
         await RunAsync(async () =>
         {
-            _ = RunAsync(CheckLocalAiAsync);
+            await LoadAiSettingsAsync();
+            _ = RefreshAiAvailabilityAsync();
             ClientId = Services.BuildInfo.ClientId ?? await _store.GetSettingAsync("oauth-client-id") ?? "";
             IncludePrivate = await _store.GetSettingAsync("oauth-private") == "true";
             IncludeProjects = await _store.GetSettingAsync("oauth-projects") == "true";
@@ -357,17 +360,25 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     [RelayCommand] private void CancelSignIn() => _device?.Cancel();
     private bool CanMarkRead() => IsSignedIn && SelectedItems.Count > 0 && SelectedItems.All(row => row.Item.HasBaseline);
     private bool CanOpenBrowser() => IsSignedIn && SelectedItem is not null;
-    private bool CanSummarize() => IsSignedIn && IsLocalAiAvailable && !IsSummarizing &&
+    public bool CanSummarize => IsSignedIn && IsAiEnabled && !IsSummarizing &&
         SelectedItem is { Item.HasBaseline: true };
-    private bool CanSummarizeUnread() => CanSummarize() && SelectedItem is { UnreadActivities.Count: > 0 };
+    public bool CanSummarizeUnread => CanSummarize && SelectedItem is { UnreadActivities.Count: > 0 };
 
-    private async Task CheckLocalAiAsync()
+    private void UpdateSummaryCommands()
     {
-        var ct = _session.Token;
-        var availability = await Task.Run(LocalAiSummarizer.GetAvailability, ct);
-        ct.ThrowIfCancellationRequested();
-        LocalAiDescription = availability.Description;
-        IsLocalAiAvailable = availability.Available;
+        OnPropertyChanged(nameof(CanSummarize));
+        OnPropertyChanged(nameof(CanSummarizeUnread));
+        SummarizeCommand.NotifyCanExecuteChanged();
+        SummarizeUnreadCommand.NotifyCanExecuteChanged();
+        ConfirmSummaryModelDownloadCommand.NotifyCanExecuteChanged();
+    }
+
+    private void SelectedItem_UnreadActivitiesChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+        UpdateSummaryCommands();
+
+    private void SelectedItem_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ItemRow.Item)) UpdateSummaryCommands();
     }
 
     public void SetItemSelection(IEnumerable<ItemRow> selected, ItemRow? primary = null)
@@ -396,9 +407,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         OpenBrowserCommand.NotifyCanExecuteChanged();
         ToggleItemFollowUpCommand.NotifyCanExecuteChanged();
         ClearFollowUpsCommand.NotifyCanExecuteChanged();
-        SummarizeCommand.NotifyCanExecuteChanged();
-        SummarizeUnreadCommand.NotifyCanExecuteChanged();
-        ConfirmSummaryModelDownloadCommand.NotifyCanExecuteChanged();
+        UpdateSummaryCommands();
         UpdateSummaryState();
     }
 
@@ -441,7 +450,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     private Task SummarizeUnreadAsync() => GenerateSummaryAsync(entireDiscussion: false);
 
     private bool CanConfirmSummaryModelDownload() => SummaryNeedsModelDownload && IsSignedIn &&
-        IsLocalAiAvailable && !IsSummarizing && _summaryItemId == SelectedItem?.Id &&
+        ActiveAiProvider == AiProvider.Local && !IsSummarizing && _summaryItemId == SelectedItem?.Id &&
         (_isEntireSummary || _unreadSummarySource is not null);
 
     [RelayCommand(CanExecute = nameof(CanConfirmSummaryModelDownload))]
@@ -451,7 +460,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     private async Task GenerateSummaryAsync(bool entireDiscussion, bool allowModelDownload = false)
     {
         if (allowModelDownload ? !CanConfirmSummaryModelDownload() :
-            !(entireDiscussion ? CanSummarize() : CanSummarizeUnread())) return;
+            !(entireDiscussion ? CanSummarize : CanSummarizeUnread)) return;
         var sources = allowModelDownload && !entireDiscussion
             ? [_unreadSummarySource!] : SummarySources(entireDiscussion);
         _summaryCancellation?.Cancel();
@@ -484,7 +493,12 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         });
         try
         {
-            var summary = await LocalAiSummarizer.SummarizeAsync(sources, progress, content, ct, allowModelDownload);
+            var summary = await (ActiveAiProvider switch
+            {
+                AiProvider.Local => LocalAiSummarizer.SummarizeAsync(sources, progress, content, ct, allowModelDownload),
+                AiProvider.Copilot => CopilotSummarizer.SummarizeAsync(sources, LocalAiSummarizer.SystemPrompt, AccountLogin, progress, content, ct),
+                _ => throw new InvalidOperationException("Choose an available AI provider in Settings.")
+            });
             ct.ThrowIfCancellationRequested();
             if (!IsCurrent()) return;
             Summary = summary;
@@ -596,7 +610,6 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         if (!IsSignedIn) return;
         await RunAsync(async () =>
         {
-            await CheckLocalAiAsync();
             _activeRefreshes++;
             IsBusy = true;
             Status = "Refresh queued — cached content remains available.";
@@ -712,7 +725,6 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         return await _client.PreviewSearchAsync(expression, AccountLogin, count, linked.Token);
     }
 
-    public (bool Available, string Description) GetLocalAiAvailability() => LocalAiSummarizer.GetAvailability();
     public Task DeleteQueryAsync(string id) => _workspace.DeleteQueryAsync(id, _session.Token);
     public Task MoveQueryAsync(int offset) => SelectedQuery is { } query
         ? RunAsync(() => _workspace.MoveQueryAsync(query.Id, offset, _session.Token)) : Task.CompletedTask;
@@ -794,9 +806,22 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     }
     partial void OnSelectedItemChanged(ItemRow? value)
     {
+        if (value is not null)
+        {
+            value.UnreadActivities.CollectionChanged += SelectedItem_UnreadActivitiesChanged;
+            value.PropertyChanged += SelectedItem_PropertyChanged;
+        }
         _workspace.PreferredItemId = value?.Id;
         _preview.Update(value);
         UpdateSummaryState();
+    }
+    partial void OnSelectedItemChanging(ItemRow? value) => DetachSelectedItem();
+
+    private void DetachSelectedItem()
+    {
+        if (SelectedItem is not { } previous) return;
+        previous.UnreadActivities.CollectionChanged -= SelectedItem_UnreadActivitiesChanged;
+        previous.PropertyChanged -= SelectedItem_PropertyChanged;
     }
     partial void OnItemFilterChanged(string value) => UpdateItems();
     private void UpdateItems()
@@ -835,6 +860,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     {
         if (_isDisposed) return;
         _isDisposed = true;
+        DetachSelectedItem();
         _timer.Stop();
         _workspace.Changed -= WorkspaceChanged;
         _device?.Cancel();

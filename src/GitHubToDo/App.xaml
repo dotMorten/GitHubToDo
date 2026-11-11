@@ -3,6 +3,7 @@
     x:Class="GitHubToDo.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:markdown="using:CommunityToolkit.WinUI.UI.Controls"
     xmlns:local="using:GitHubToDo">
     <Application.Resources>
         <ResourceDictionary>
@@ -42,6 +43,67 @@
                     <SolidColorBrush x:Key="FollowUpFlagBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
+            <Style x:Key="DetailsMarkdownStyle" TargetType="markdown:MarkdownTextBlock">
+                <Setter Property="IsTextSelectionEnabled" Value="True" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="WrapCodeBlock" Value="True" />
+                <Setter Property="UseSyntaxHighlighting" Value="False" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="LinkForeground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                <Setter Property="CodeForeground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="CodeBackground" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                <Setter Property="InlineCodeForeground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="InlineCodeBackground" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                <Setter Property="QuoteForeground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="QuoteBackground" Value="Transparent" />
+                <Setter Property="QuoteBorderBrush" Value="{ThemeResource ControlStrongStrokeColorDefaultBrush}" />
+                <Setter Property="Header1Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="Header2Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="Header3Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="Header4Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="Header5Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="Header6Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="HorizontalRuleBrush" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Setter Property="TableBorderBrush" Value="{ThemeResource ControlStrokeColorDefaultBrush}" />
+            </Style>
+
+            <Style x:Key="CardStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="{StaticResource OverlayCornerRadius}" />
+            </Style>
+
+            <Style x:Key="ChipStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource ControlStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="Padding" Value="10,3" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="AccentChipStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+                <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="Padding" Value="10,3" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="SubtleIconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="Padding" Value="8,6" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="SubtleToggleButtonStyle" TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="Padding" Value="8,6" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

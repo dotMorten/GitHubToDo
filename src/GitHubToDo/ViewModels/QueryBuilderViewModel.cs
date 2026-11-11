@@ -27,12 +27,14 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
     private bool _suppressAutoPreview;
     private bool _nameFromAi;
     private bool _isDisposed;
+    private AiProvider _aiProvider;
 
     public QueryBuilderViewModel(ShellViewModel shell, SavedQuery? existing)
     {
         _shell = shell;
         IsEditing = existing is not null;
-        (IsAiAvailable, AiDescription) = shell.GetLocalAiAvailability();
+        _aiProvider = shell.ActiveAiProvider;
+        shell.AiProviderChanged += OnAiProviderChanged;
         Name = existing?.Name ?? "";
         _suppressAutoPreview = true;
         Expression = existing?.Expression ?? "";
@@ -43,8 +45,8 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
     }
 
     public bool IsEditing { get; }
-    public bool IsAiAvailable { get; }
-    public string AiDescription { get; }
+    public bool IsAiAvailable => _shell.IsAiEnabled;
+    public string AiDescription => _shell.AiDescription;
     public string Overview => QueryLanguage.Overview;
     public ObservableCollection<QualifierDoc> FilteredQualifiers { get; } = [];
     public ObservableCollection<QueryAttemptRow> Attempts { get; } = [];
@@ -239,10 +241,27 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
 
     private bool CanGenerate() => IsAiAvailable && !IsGenerating;
 
+    private void OnAiProviderChanged()
+    {
+        if (_isDisposed) return;
+        if (_aiProvider != _shell.ActiveAiProvider)
+        {
+            _generation?.Cancel();
+            NeedsModelDownload = false;
+            GenerationStatus = "";
+            Attempts.Clear();
+            _aiProvider = _shell.ActiveAiProvider;
+        }
+        OnPropertyChanged(nameof(IsAiAvailable));
+        OnPropertyChanged(nameof(AiDescription));
+        GenerateCommand.NotifyCanExecuteChanged();
+        ConfirmModelDownloadCommand.NotifyCanExecuteChanged();
+    }
+
     [RelayCommand(CanExecute = nameof(CanGenerate))]
     private Task GenerateAsync() => GenerateAsync(allowModelDownload: false);
 
-    private bool CanConfirmModelDownload() => NeedsModelDownload && CanGenerate();
+    private bool CanConfirmModelDownload() => NeedsModelDownload && CanGenerate() && _shell.ActiveAiProvider == AiProvider.Local;
 
     [RelayCommand(CanExecute = nameof(CanConfirmModelDownload))]
     private Task ConfirmModelDownloadAsync() => GenerateAsync(allowModelDownload: true);
@@ -261,7 +280,7 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
         using var cancellation = _generation = CancellationTokenSource.CreateLinkedTokenSource(_shell.SessionCancellationToken);
         IsGenerating = true;
         Attempts.Clear();
-        GenerationStatus = "Writing a query with the on-device model…";
+        GenerationStatus = "Generating query…";
         var progress = new Progress<QueryAttempt>(attempt =>
         {
             if (_isDisposed || cancellation.IsCancellationRequested) return;
@@ -275,7 +294,7 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
         });
         try
         {
-            var result = await LocalAiQueryWriter.GenerateAsync(Description, CheckAsync, progress, status,
+            var result = await _shell.GenerateQueryWithAiAsync(Description, CheckAsync, progress, status,
                 cancellation.Token, allowModelDownload);
             if (_isDisposed || cancellation.IsCancellationRequested) return;
             if (result.Expression is not null)
@@ -305,7 +324,7 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
         }
         catch (Exception ex)
         {
-            if (!_isDisposed) GenerationStatus = $"Local AI could not generate a query: {Services.LocalAiErrors.Describe(ex)}";
+            if (!_isDisposed) GenerationStatus = $"AI could not generate a query: {Services.LocalAiErrors.Describe(ex)}";
         }
         finally
         {
@@ -348,6 +367,7 @@ public sealed partial class QueryBuilderViewModel : ObservableObject, IDisposabl
     public void Dispose()
     {
         _isDisposed = true;
+        _shell.AiProviderChanged -= OnAiProviderChanged;
         _preview?.Cancel();
         _generation?.Cancel();
     }

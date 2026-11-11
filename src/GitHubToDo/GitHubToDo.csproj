@@ -1,7 +1,7 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetFramework>net11.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>GitHubToDo</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -28,7 +28,6 @@
     <IntermediateOutputPath>$(BaseIntermediateOutputPath)$(Platform)\$(Configuration)\Aion\</IntermediateOutputPath>
     <OutputPath>bin\$(Platform)\$(Configuration)\Aion\</OutputPath>
     <RestoreAdditionalProjectSources>$(RestoreAdditionalProjectSources);$(MSBuildProjectDirectory)\nuget-local</RestoreAdditionalProjectSources>
-    <WindowsSdkPackageVersion>10.0.26100.57</WindowsSdkPackageVersion>
     <CsWinRTWindowsMetadata>$(NuGetPackageRoot)\microsoft.windows.sdk.net.ref\$(WindowsSdkPackageVersion)\winmd</CsWinRTWindowsMetadata>
   </PropertyGroup>
   <ItemGroup>
@@ -61,14 +60,15 @@
     <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
     <PackageReference Include="CommunityToolkit.WinUI.UI.Controls.Markdown" Version="7.1.2" />
     <PackageReference Include="CommunityToolkit.WinUI.Controls.Sizers" Version="8.2.251219" />
+    <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.28" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer" Version="0.7.1">
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer" Version="0.8.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.4-experimental" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.6-experimental" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.7.1" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.8.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\GitHubToDo.Core\GitHubToDo.Core.csproj" />
@@ -131,7 +131,8 @@
     <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
     <!-- Trim every publish, and run the trim/CsWinRT interop analyzers in every build (Debug included) so trim
          breakage shows up as build warnings instead of a crash in the released package. -->
-    <PublishTrimmed>True</PublishTrimmed>
+    <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
+	<PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <IsAotCompatible>true</IsAotCompatible>
     <!-- Lets the CsWinRT source generator emit trim-safe vtables for managed collections passed to ItemsSource. -->
